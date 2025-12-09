@@ -1,4 +1,4 @@
-# Rrb.PersistentVector - A C# RRB tree implementation
+# RrbList - A C# RRB tree implementation
 
 We all know about clojure's persistent vectors. They are old news by this point, not only are they no longer really
 exciting, but there are greener pastures. In short: RRB trees are the bee's knees. They are exactly like clojure's
