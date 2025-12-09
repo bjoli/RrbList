@@ -81,14 +81,13 @@ internal static class RrbAlgorithm
         }
 
         var internalNode = (InternalNode<T>)root;
-    
-        // CLEANUP: Use the helper
+
         var (childIndex, subIndex) = GetChildIndex(internalNode, index, shift);
 
         if (childIndex >= internalNode.Len) throw new IndexOutOfRangeException();
-    
-        Node<T> child = internalNode.Children[childIndex]!;
-        Node<T> newChild = Update(child, subIndex, value, shift - Constants.RRB_BITS, token);
+
+        var child = internalNode.Children[childIndex]!;
+        var newChild = Update(child, subIndex, value, shift - Constants.RRB_BITS, token);
 
         if (token == null)
             // Cone your way back up
@@ -120,9 +119,9 @@ internal static class RrbAlgorithm
         var internalNode = (InternalNode<T>)node;
 
         var (childIdx, indexInChild) = GetChildIndex(internalNode, limit - 1, shift);
-    
+
         // Convert 0-based index back to 1-based count for the recursive limit
-        int limitInChild = indexInChild + 1;
+        var limitInChild = indexInChild + 1;
 
         var child = internalNode.Children[childIdx]!;
         var slicedChild = SliceRightRec(child, limitInChild, shift - Constants.RRB_BITS);
@@ -144,7 +143,7 @@ internal static class RrbAlgorithm
     }
 
 
-    // We need 'treeCount' to calculate the correct insertion index.
+    // TODO: remove this and fix Merge.
     public static Node<T> FlushTail<T>(Node<T>? root, LeafNode<T> tail, int treeCount, ref int shift)
     {
         if (tail.Len == 0) return root!; // Caller should handle null
@@ -157,6 +156,7 @@ internal static class RrbAlgorithm
     public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShift, int rightShift,
         out int newShift)
     {
+        // Left node is higher than right node
         if (leftShift > rightShift)
         {
             var left = (InternalNode<T>)leftNode;
@@ -169,6 +169,7 @@ internal static class RrbAlgorithm
             return Rebalance(left, mergedMid, null, leftShift, subShift, out newShift);
         }
 
+        // Right node is higher than left node
         if (leftShift < rightShift)
         {
             var right = (InternalNode<T>)rightNode;
@@ -260,7 +261,6 @@ internal static class RrbAlgorithm
             if (childLeft != null) newLeftChildren[childIdx] = childLeft;
 
             var tempLeft = new InternalNode<T>(newLeftChildren, null, newLeftLen, token);
-            // FIX: Pass 'shift', not 'shift - 5'
             leftParent = SetSizes(tempLeft, shift);
         }
 
@@ -282,7 +282,6 @@ internal static class RrbAlgorithm
                 Array.Copy(internalNode.Children, childIdx + 1, newRightChildren, offset, rightSiblings);
 
             var tempRight = new InternalNode<T>(newRightChildren, null, newRightLen, token);
-            // FIX: Pass 'shift', not 'shift - 5'
             rightParent = SetSizes(tempRight, shift);
         }
 
@@ -324,16 +323,13 @@ internal static class RrbAlgorithm
 
         // Slice the span to the actual count
         var childrenSlice = new ReadOnlySpan<Node<T>>(allChildren, 0, count);
+
+        // CreateConcatPlan changes "plan" in place.
         Span<int> plan = stackalloc int[count];
-
-        // 2. Create Plan
         CreateConcatPlan(childrenSlice, plan, out var topLen);
-
-        // 3. Execute Plan            var nodes = new List<Node<T>>();
 
         var newAll = ExecuteConcatPlan(childrenSlice, plan, topLen, shift);
 
-        // 4. Result
         if (topLen <= Constants.RRB_BRANCHING)
         {
             newShift = shift;
@@ -462,7 +458,10 @@ internal static class RrbAlgorithm
     private static int CountTree<T>(Node<T> node, int shift)
     {
         if (shift == 0) return node.Len;
-        if (node is InternalNode<T> inode && inode.SizeTable != null) return inode.SizeTable[inode.Len - 1];
+        // relaxed, just use the size table
+        if (node is InternalNode<T> inode && inode.SizeTable != null)
+            return inode.SizeTable[inode.Len - 1];
+
         // Balanced calculation
         return (node.Len - 1) * (1 << shift) + CountTree(((InternalNode<T>)node).Children[node.Len - 1]!,
             shift - Constants.RRB_BITS);
@@ -498,8 +497,7 @@ internal static class RrbAlgorithm
         var (subidx, dropInChild) = GetChildIndex(internalNode, toDrop, shift);
 
 
-        
-        // 2. Reconstruct Children Array
+        // Reconstruct Children Array
         // We discard children [0...subidx-1]
         // We slice child [subidx]
         // We keep children [subidx+1...end]
@@ -508,9 +506,7 @@ internal static class RrbAlgorithm
         var newChildren = new Node<T>?[remainingChildren];
 
         // Handle the split child
-        // Optimization: If we drop exactly a multiple of child-size, we don't slice the child, we just skip it.
-        // But here 'subidx' points to the child that *contains* the remainder, 
-        // so if dropInChild == 0, we keep the whole child.
+        // if dropInChild == 0, we keep the whole child.
         if (dropInChild > 0)
             newChildren[0] = SliceLeftRec(internalNode.Children[subidx]!, dropInChild, shift - Constants.RRB_BITS);
         else
@@ -519,7 +515,7 @@ internal static class RrbAlgorithm
         // Copy remaining siblings
         if (remainingChildren > 1) Array.Copy(internalNode.Children, subidx + 1, newChildren, 1, remainingChildren - 1);
 
-        // 3. Rebuild Size Table
+        // Rebuild Size Table
         // If we slice from the left, indices shift, so we almost always need a SizeTable.
         // Exception: If we dropped exact whole subtrees from a balanced node, it stays balanced!
         var staysBalanced = internalNode.SizeTable == null && dropInChild == 0;
@@ -561,7 +557,7 @@ internal static class RrbAlgorithm
         ref int shift,
         OwnerToken? token)
     {
-        // 1. Try to fit into the active tail buffer
+        //  Try to fit into the active tail buffer
         if (tailLen < Constants.RRB_BRANCHING)
         {
             tail = tail.EnsureEditable(token);
@@ -582,7 +578,7 @@ internal static class RrbAlgorithm
             return;
         }
 
-        // 2. Tail is full. 
+        // Tail is full. 
         // We must promote the 'oldTail' into the tree and start a new tail.
         var oldTailToPush = tail;
 
@@ -595,7 +591,7 @@ internal static class RrbAlgorithm
         tailLen = 1;
         cnt++; // Total count increases by 1 (the new element)
 
-        // 3. Delegate Tree Insertion
+        // Delegate Tree Insertion
         // AppendLeafToTree handles:
         // - Null Root
         // - Root Growth (Leaf -> Internal)
@@ -603,8 +599,6 @@ internal static class RrbAlgorithm
         root = AppendLeafToTree(root, oldTailToPush, ref shift, token);
     }
 
-
-    // Inside RrbAlgorithm.cs
 
 // Returns the updated node if the tail could be inserted/merged.
 // Returns NULL if the node is physically full and the tail could not be accepted.
@@ -637,17 +631,17 @@ internal static class RrbAlgorithm
                     }
             }
 
-            // 2. Try to APPEND a new child
+            // Try to APPEND a new child
             if (internalNode.Len < Constants.RRB_BRANCHING)
                 return AppendChild(internalNode, tailToInsert, shift, token);
 
-            // 3. Full
+            // Full. Let caller handle height growth.
             return null;
         }
 
-        // B. Recursive Step: Internal Nodes (Shift > 5)
 
-        // 1. Try to push into the last child (Recursion)
+        // Recursive Step: Internal Nodes (Shift > 5)
+        // Try to push into the last child (Recursion)
         if (internalNode.Len > 0)
         {
             var lastChild = internalNode.Children[internalNode.Len - 1]!;
@@ -665,21 +659,23 @@ internal static class RrbAlgorithm
             }
         }
 
-        // 2. Child was full. Try to APPEND a new Path.
+        // Child was full. Try to APPEND a new Path.
         if (internalNode.Len < Constants.RRB_BRANCHING)
         {
             var newPath = CreatePath(shift - Constants.RRB_BITS, tailToInsert, token);
             return AppendChild(internalNode, newPath, shift, token);
         }
 
-        // 3. Physically Full
+        // Completely full. Let the caller grow the tree.
         return null;
     }
 
     private static InternalNode<T> AppendChild<T>(InternalNode<T> node, Node<T> childToAdd, int shift,
         OwnerToken? token)
     {
-        // 1. CHECK FOR DENSITY VIOLATION
+        //  CHECK FOR DENSITY VIOLATION
+        // if pushing a tail into a dense tree where the last leaf is not completely full
+        // This fixes that. 
         var forceRelaxed = false;
 
         if (node.SizeTable == null && node.Len > 0)
@@ -696,7 +692,7 @@ internal static class RrbAlgorithm
             }
         }
 
-        // 2. TRANSIENT PATH
+        // TRANSIENT PATH
         if (token != null)
         {
             var editable = node;
@@ -719,50 +715,49 @@ internal static class RrbAlgorithm
             return editable;
         }
 
-        // 3. PERSISTENT PATH
+        // PERSISTENT PATH
+
+        var newLen = node.Len + 1;
+        var newChildren = new Node<T>?[newLen];
+        Array.Copy(node.Children, newChildren, node.Len);
+        newChildren[node.Len] = childToAdd;
+
+        int[]? newSizeTable = null;
+
+        if (node.SizeTable != null || forceRelaxed)
         {
-            var newLen = node.Len + 1;
-            var newChildren = new Node<T>?[newLen];
-            Array.Copy(node.Children, newChildren, node.Len);
-            newChildren[node.Len] = childToAdd;
+            newSizeTable = new int[newLen];
 
-            int[]? newSizeTable = null;
-
-            if (node.SizeTable != null || forceRelaxed)
+            if (node.SizeTable != null)
             {
-                newSizeTable = new int[newLen];
+                Array.Copy(node.SizeTable, newSizeTable, node.Len);
+            }
+            else
+            {
+                // At shift 5, a full child (leaf) has size 32 (1<<5).
+                var blockSize = 1 << shift;
+                var childShift = shift - Constants.RRB_BITS;
 
-                if (node.SizeTable != null)
+                for (var i = 0; i < node.Len; i++)
                 {
-                    Array.Copy(node.SizeTable, newSizeTable, node.Len);
+                    var prevSum = i == 0 ? 0 : newSizeTable[i - 1];
+
+                    // We only need to calculate the specific size if it's the last child 
+                    // (which caused the relaxation). Otherwise, we know it's a full block.
+                    var childSize = i == node.Len - 1
+                        ? GetTotalSize(node.Children[i]!, childShift)
+                        : blockSize;
+
+                    newSizeTable[i] = prevSum + childSize;
                 }
-                else
-                {
-                    // At shift 5, a full child (leaf) has size 32 (1<<5).
-                    var blockSize = 1 << shift;
-                    var childShift = shift - Constants.RRB_BITS;
-
-                    for (var i = 0; i < node.Len; i++)
-                    {
-                        var prevSum = i == 0 ? 0 : newSizeTable[i - 1];
-
-                        // We only need to calculate the specific size if it's the last child 
-                        // (which caused the relaxation). Otherwise, we know it's a full block.
-                        var childSize = i == node.Len - 1
-                            ? GetTotalSize(node.Children[i]!, childShift)
-                            : blockSize;
-
-                        newSizeTable[i] = prevSum + childSize;
-                    }
-                }
-
-                var prevTotal = node.Len > 0 ? newSizeTable[node.Len - 1] : 0;
-                var addedSize = GetTotalSize(childToAdd, shift - Constants.RRB_BITS);
-                newSizeTable[node.Len] = prevTotal + addedSize;
             }
 
-            return new InternalNode<T>(newChildren, newSizeTable, newLen, null);
+            var prevTotal = node.Len > 0 ? newSizeTable[node.Len - 1] : 0;
+            var addedSize = GetTotalSize(childToAdd, shift - Constants.RRB_BITS);
+            newSizeTable[node.Len] = prevTotal + addedSize;
         }
+
+        return new InternalNode<T>(newChildren, newSizeTable, newLen, null);
     }
 
 // Helper to "Upgrade" a mutable dense node to a mutable relaxed node
@@ -791,7 +786,7 @@ internal static class RrbAlgorithm
         return new InternalNode<T>(newChildren, newTable, node.Len, token);
     }
 
-// Helper to get size without crashing
+// Helper to get size without crashing. That was a thing.
     private static int GetTotalSize<T>(Node<T> node, int shift)
     {
         if (shift == 0) return node.Len;
@@ -800,8 +795,7 @@ internal static class RrbAlgorithm
 
         // It's a dense node.
         // However, if we are calling this on a child that forced relaxation, 
-        // it might be a Dense node with 32 children where the last one is sparse?
-        // Recursion handles it.
+        // it might be a Dense node with 32 children where the last one is sparse
         var denseNode = (InternalNode<T>)node;
         var fullParams = (denseNode.Len - 1) * (1 << shift);
         var lastChildSize = GetTotalSize(denseNode.Children[denseNode.Len - 1]!, shift - Constants.RRB_BITS);
@@ -817,8 +811,6 @@ internal static class RrbAlgorithm
             // Ensure array capacity
             if (left.Items.Length < left.Len + right.Len)
             {
-                // Should be covered by EnsureEditable/Constructor logic (32 size), 
-                // but simple check doesn't hurt.
                 var newArr = new T[Constants.RRB_BRANCHING];
                 Array.Copy(left.Items, newArr, left.Len);
                 left.Items = newArr;
@@ -856,7 +848,6 @@ internal static class RrbAlgorithm
         if (newRoot != null) return newRoot;
 
         // Everything from here is Root overflow.
-
         // at this point, we know that root is an InternalNode due to TryPushDownTail failing.
         var oldRootInode = (InternalNode<T>)root;
 
@@ -915,33 +906,30 @@ internal static class RrbAlgorithm
         parent.Children[1] = right;
         return parent;
     }
-    
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static (int childIndex, int relativeIndex) GetChildIndex<T>(InternalNode<T> node, int index, int shift)
     {
         if (node.SizeTable != null)
         {
-            int childIndex = 0;
+            var childIndex = 0;
             // Search for the slot where size > index
-            while (childIndex < node.Len && node.SizeTable[childIndex] <= index) 
-            {
-                childIndex++;
-            }
-        
+            while (childIndex < node.Len && node.SizeTable[childIndex] <= index) childIndex++;
+
             // Calculate relative index for the child
-            int prevCount = childIndex > 0 ? node.SizeTable[childIndex - 1] : 0;
+            var prevCount = childIndex > 0 ? node.SizeTable[childIndex - 1] : 0;
             return (childIndex, index - prevCount);
         }
         else
         {
             // Dense/Balanced logic
-            int childIndex = (index >> shift) & Constants.RRB_MASK;
-        
+            var childIndex = (index >> shift) & Constants.RRB_MASK;
+
             // IMPORTANT: For dense nodes, the relative index is just masking 
             // IF we assume the child is also dense. But if the child is Relaxed, 
             // it expects a 0-based index.
             // It is safer to always subtract the base.
-            int childStart = childIndex << shift;
+            var childStart = childIndex << shift;
             return (childIndex, index - childStart);
         }
     }

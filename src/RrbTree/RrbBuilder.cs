@@ -142,14 +142,13 @@ public class RrbBuilder<T>
         for (var i = 0; i < chunks; i++)
         {
             var chunkItems = tailSpan.Slice(i * Constants.RRB_BRANCHING,
-                                                Constants.RRB_BRANCHING).ToArray();
+                Constants.RRB_BRANCHING).ToArray();
 
             // We create a Transient node (owned by token) so PushDownTail can mutate it if needed?
             // Actually, once pushed to tree, it's part of the structure.
             var leaf = new LeafNode<T>(chunkItems, Constants.RRB_BRANCHING, _token);
-            
+
             _root = RrbAlgorithm.AppendLeafToTree(_root, leaf, ref _shift, _token);
-            
         }
     }
 

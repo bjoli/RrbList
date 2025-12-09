@@ -101,26 +101,16 @@ public class FuzzTest
                 if (expected.Count != actual.Count)
                     throw new Exception($"Count Mismatch at iter {i}. " +
                                         $"Expected {expected.Count}, Actual {actual.Count}");
-                
-                
-                
+
+
                 // This is a great place to test the enumerator!
-                int foreachList = 0;
-                int foreachRrb = 0;
-                foreach (int io in actual)
-                {
-                    foreachRrb += io;
-                }
+                var foreachList = 0;
+                var foreachRrb = 0;
+                foreach (var io in actual) foreachRrb += io;
 
-                foreach (int oi in expected)
-                {
-                    foreachList += oi;
-                }
+                foreach (var oi in expected) foreachList += oi;
 
-                if (foreachRrb != foreachList)
-                {
-                    throw new Exception("foreach mismatch");
-                }
+                if (foreachRrb != foreachList) throw new Exception("foreach mismatch");
                 //
                 // if (!CheckAll(actual, expected))
                 //  {

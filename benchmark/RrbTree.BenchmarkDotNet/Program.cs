@@ -63,7 +63,7 @@ public class RrbBenchmarks
         for (var i = 0; i < N; i++) builder.Add(i);
         var res = builder.ToImmutable();
     }
-    
+
     [Benchmark]
     public void Build_Transient_Standard_Leaf()
     {

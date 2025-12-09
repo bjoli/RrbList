@@ -10,7 +10,6 @@
  */
 
 
-using System.Collections;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -24,7 +23,7 @@ public sealed partial class RrbList<T> where T : notnull
      * </summary>
      */
     public static readonly RrbList<T> Empty = new();
-    private readonly int Cnt;
+
     internal readonly Node<T>? Root;
     internal readonly int Shift;
     internal readonly LeafNode<T> Tail;
@@ -34,7 +33,7 @@ public sealed partial class RrbList<T> where T : notnull
     {
         Root = root;
         Tail = tail;
-        Cnt = cnt;
+        Count = cnt;
         Shift = shift;
         TailLen = tailLen;
     }
@@ -48,7 +47,7 @@ public sealed partial class RrbList<T> where T : notnull
     {
         Root = null;
         Tail = LeafNode<T>.Empty;
-        Cnt = 0;
+        Count = 0;
         Shift = 0;
         TailLen = 0;
     }
@@ -67,30 +66,26 @@ public sealed partial class RrbList<T> where T : notnull
         {
             Root = other.Root;
             Tail = other.Tail;
-            Cnt = other.Cnt;
+            Count = other.Count;
             Shift = other.Shift;
             TailLen = other.TailLen;
             return;
         }
 
         RrbBuilder<T> builder;
-        
+
         // TODO: benchmark where it makes sense to use a fat tail.
         if (items.Count() > 4096)
-        {
             builder = new RrbBuilder<T>(1024);
-        }
         else
-        {
             builder = new RrbBuilder<T>(32);
-        }
-        
+
         foreach (var item in items) builder.Add(item);
 
         var temp = builder.ToImmutable();
         Root = temp.Root;
         Tail = temp.Tail;
-        Cnt = temp.Cnt;
+        Count = temp.Count;
         Shift = temp.Shift;
         TailLen = temp.TailLen;
     }
@@ -128,13 +123,13 @@ public sealed partial class RrbList<T> where T : notnull
     {
         if (array == null) throw new ArgumentNullException(nameof(array));
         if (arrayIndex < 0) throw new ArgumentOutOfRangeException(nameof(arrayIndex));
-        if (array.Length - arrayIndex < Cnt) throw new ArgumentException("Destination array is too small.");
+        if (array.Length - arrayIndex < Count) throw new ArgumentException("Destination array is too small.");
 
         if (Root != null) CopyNode(Root, array, arrayIndex, Shift);
 
         if (TailLen > 0)
         {
-            var tailDest = arrayIndex + (Cnt - TailLen);
+            var tailDest = arrayIndex + (Count - TailLen);
             Array.Copy(Tail.Items, 0, array, tailDest, TailLen);
         }
     }
@@ -177,7 +172,7 @@ public sealed partial class RrbList<T> where T : notnull
      *     The number of elements in the list
      * </summary>
      */
-    public int Count => Cnt;
+    public int Count { get; }
 
 
     /**
@@ -191,9 +186,9 @@ public sealed partial class RrbList<T> where T : notnull
     {
         get
         {
-            if (index < 0 || index >= Cnt) throw new IndexOutOfRangeException();
+            if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
 
-            var tailOffset = Cnt - TailLen;
+            var tailOffset = Count - TailLen;
             if (index >= tailOffset) return Tail.Items[index - tailOffset];
 
             var current = Root!;
@@ -222,7 +217,6 @@ public sealed partial class RrbList<T> where T : notnull
         }
     }
 
- 
 
     /**
      * <summary>
@@ -251,7 +245,7 @@ public sealed partial class RrbList<T> where T : notnull
     {
         var newRoot = Root;
         var newTail = Tail;
-        var newCnt = Cnt;
+        var newCnt = Count;
         var newTailLen = TailLen;
         var newShift = Shift;
 
@@ -269,17 +263,17 @@ public sealed partial class RrbList<T> where T : notnull
      */
     public RrbList<T> SetItem(int index, T value)
     {
-        if (index < 0 || index >= Cnt) throw new IndexOutOfRangeException();
+        if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
 
-        var tailOffset = Cnt - TailLen;
+        var tailOffset = Count - TailLen;
         if (index >= tailOffset)
         {
             var newTail = Tail.CloneAndSet(index - tailOffset, value);
-            return new RrbList<T>(Root, newTail, Cnt, Shift, TailLen);
+            return new RrbList<T>(Root, newTail, Count, Shift, TailLen);
         }
 
         var newRoot = RrbAlgorithm.Update(Root!, index, value, Shift, null);
-        return new RrbList<T>(newRoot, Tail, Cnt, Shift, TailLen);
+        return new RrbList<T>(newRoot, Tail, Count, Shift, TailLen);
     }
 
 
@@ -358,7 +352,7 @@ public sealed partial class RrbList<T> where T : notnull
             newShift -= Constants.RRB_BITS;
         }
 
-        return new RrbList<T>(newRoot, newTail, Cnt, newShift, newTail.Len);
+        return new RrbList<T>(newRoot, newTail, Count, newShift, newTail.Len);
     }
 
     /**
@@ -422,14 +416,14 @@ public sealed partial class RrbList<T> where T : notnull
      */
     public RrbList<T> Slice(int start, int count)
     {
-        if (start < 0 || count < 0 || start + count > Cnt)
+        if (start < 0 || count < 0 || start + count > Count)
             throw new ArgumentOutOfRangeException();
 
         if (count == 0) return Empty;
-        if (start == 0 && count == Cnt) return this;
+        if (start == 0 && count == Count) return this;
 
         // Right Slice (Tree size check)
-        var treeSize = Cnt - TailLen;
+        var treeSize = Count - TailLen;
         LeafNode<T> resultTail;
         Node<T>? resultRoot;
         var newEnd = start + count;
@@ -498,7 +492,7 @@ public sealed partial class RrbList<T> where T : notnull
                 Array.Copy(other.Tail.Items, 0, newItems, TailLen, other.TailLen);
 
                 var newTail = new LeafNode<T>(newItems, newItems.Length, null);
-                return new RrbList<T>(Root, newTail, Cnt + other.Cnt, Shift, newTail.Len);
+                return new RrbList<T>(Root, newTail, Count + other.Count, Shift, newTail.Len);
             }
 
             var spaceInThis = Constants.RRB_BRANCHING - TailLen;
@@ -513,16 +507,16 @@ public sealed partial class RrbList<T> where T : notnull
             Array.Copy(other.Tail.Items, spaceInThis, newTailItems, 0, overflow);
             var newActiveTail = new LeafNode<T>(newTailItems, overflow, null);
 
-            var treeCountAfterPush = Cnt - TailLen + Constants.RRB_BRANCHING;
+            var treeCountAfterPush = Count - TailLen + Constants.RRB_BRANCHING;
 
             var newShift = Shift;
             var newRoot = RrbAlgorithm.AppendLeafToTree(Root, newLeaf, ref newShift, null);
 
-            return new RrbList<T>(newRoot, newActiveTail, Cnt + other.Cnt, newShift, overflow);
+            return new RrbList<T>(newRoot, newActiveTail, Count + other.Count, newShift, overflow);
         }
 
         var newLeftShift = Shift;
-        var treeCount = Cnt - TailLen;
+        var treeCount = Count - TailLen;
 
         var leftTree = RrbAlgorithm.FlushTail(Root, Tail, treeCount, ref newLeftShift);
         var leftTreeShift = newLeftShift;
@@ -549,13 +543,13 @@ public sealed partial class RrbList<T> where T : notnull
      */
     public (RrbList<T> Left, RrbList<T> Right) Split(int index)
     {
-        if (index < 0 || index > Cnt) throw new IndexOutOfRangeException();
+        if (index < 0 || index > Count) throw new IndexOutOfRangeException();
         if (index == 0) return (Empty, this);
-        if (index == Cnt) return (this, Empty);
+        if (index == Count) return (this, Empty);
 
 
         // Case A: Split is inside the Tail
-        var treeCount = Cnt - TailLen;
+        var treeCount = Count - TailLen;
         if (index >= treeCount)
         {
             // Tree is fully in Left. Tail is split.
@@ -563,7 +557,7 @@ public sealed partial class RrbList<T> where T : notnull
             var (tailL, tailR) = SplitTail(Tail, splitInTail);
 
             var left = new RrbList<T>(Root, tailL, index, Shift, tailL.Len);
-            var right = new RrbList<T>(null, tailR, Cnt - index, 0, tailR.Len);
+            var right = new RrbList<T>(null, tailR, Count - index, 0, tailR.Len);
             return (left, right);
         }
 
@@ -574,10 +568,11 @@ public sealed partial class RrbList<T> where T : notnull
         // 2. Left List gets treeL + empty tail (or we could try to fetch a tail from treeL?)
         // Simplest valid state: Left has empty tail.
         var leftList = new RrbList<T>(treeL, LeafNode<T>.Empty, index, Shift, 0);
-        ; //.Normalize();
+        //.Normalize();
+        // TODO: should we normalize here?
 
         // 3. Right List gets treeR + original Tail
-        var rightList = new RrbList<T>(treeR, Tail, Cnt - index, Shift, TailLen);
+        var rightList = new RrbList<T>(treeR, Tail, Count - index, Shift, TailLen);
 
         return (leftList, rightList);
     }
@@ -606,8 +601,8 @@ public sealed partial class RrbList<T> where T : notnull
      */
     public RrbList<T> Insert(int index, T item)
     {
-        if (index < 0 || index > Cnt) throw new IndexOutOfRangeException();
-        if (index == Cnt) return Add(item);
+        if (index < 0 || index > Count) throw new IndexOutOfRangeException();
+        if (index == Count) return Add(item);
         if (index == 0) return new RrbList<T>().Add(item).Merge(this);
 
         // Single traversal split
@@ -616,7 +611,6 @@ public sealed partial class RrbList<T> where T : notnull
         var nel = left.Add(item);
         var ner = nel.Merge(right);
         return ner;
-        //return left.Add(item).Merge(right);
     }
 
     /**
@@ -631,9 +625,9 @@ public sealed partial class RrbList<T> where T : notnull
         // One could think that this approach is slower than using Split(index) and pop.
         // but it usually isn't,
 
-        if (index < 0 || index >= Cnt) throw new IndexOutOfRangeException();
+        if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
         var left = Slice(0, index);
-        var right = Slice(index + 1, Cnt - (index + 1));
+        var right = Slice(index + 1, Count - (index + 1));
         return left.Merge(right);
     }
 
@@ -682,7 +676,7 @@ public sealed partial class RrbList<T> where T : notnull
     public override string ToString()
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"RrbList<{typeof(T).Name}> (Cnt: {Cnt}, Height: {Shift / Constants.RRB_BITS})");
+        sb.AppendLine($"RrbList<{typeof(T).Name}> (Cnt: {Count}, Height: {Shift / Constants.RRB_BITS})");
 
         if (TailLen > 0)
         {
@@ -754,7 +748,7 @@ public sealed partial class RrbList<T> where T : notnull
      */
     public RrbList<T> Pop()
     {
-        if (Cnt == 0) throw new InvalidOperationException("List is empty");
+        if (Count == 0) throw new InvalidOperationException("List is empty");
 
         // Fast Path: Just shrink the tail count
         if (TailLen > 1)
@@ -766,13 +760,13 @@ public sealed partial class RrbList<T> where T : notnull
             Array.Copy(Tail.Items, 0, newTailItems, 0, TailLen - 1);
             var newTail = new LeafNode<T>(newTailItems, TailLen - 1, null);
 
-            return new RrbList<T>(Root, newTail, Cnt - 1, Shift, TailLen - 1);
+            return new RrbList<T>(Root, newTail, Count - 1, Shift, TailLen - 1);
         }
 
         // Slow Path: Tail becomes empty.
         // We rely on Slice to find the new tail from the tree.
         // Slice(0, Cnt - 1) correctly promotes the rightmost leaf.
-        return Slice(0, Cnt - 1);
+        return Slice(0, Count - 1);
     }
 
     /**
@@ -783,9 +777,9 @@ public sealed partial class RrbList<T> where T : notnull
      */
     public RrbList<T> PopFirst()
     {
-        if (Cnt == 0) throw new InvalidOperationException("List is empty");
+        if (Count == 0) throw new InvalidOperationException("List is empty");
 
-        return Slice(1, Cnt);
+        return Slice(1, Count);
     }
 
     /**
@@ -800,9 +794,9 @@ public sealed partial class RrbList<T> where T : notnull
 
         // Also verify that the size of the tree matches the Count - TailLen
         var countedSize = CountNode(Root, Shift);
-        if (countedSize != Cnt - TailLen)
+        if (countedSize != Count - TailLen)
             throw new Exception(
-                $"Integrity Error: Root tracks {Cnt - TailLen} items, but traversal found {countedSize}.");
+                $"Integrity Error: Root tracks {Count - TailLen} items, but traversal found {countedSize}.");
     }
 
     private int CountNode(Node<T> node, int shift)

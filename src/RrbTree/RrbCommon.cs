@@ -32,7 +32,7 @@ internal static class Constants
 
     // We are limited to 2 billion elements by .net anyway, so this doesn't limit us at all.
     public const int RRB_MAX_HEIGHT = 10;
-    
+
     // Constants, to be used, for when to use fat tail in builder. 4096 is conservative.
     public const int WHEN_FAT_TAIL = 4096;
     public const int FAT_TAIL_SIZE = 1024;
@@ -44,8 +44,4 @@ internal static class Constants
 // on a different thread.
 internal class OwnerToken
 {
-
-    public OwnerToken()
-    {
-    }
 }

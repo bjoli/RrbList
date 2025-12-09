@@ -160,12 +160,10 @@ public class RelaxedTreeTests
         //    WITHOUT FIX: New Root is Dense. It assumes Child[0] (Old Root) is full (1024 items).
         //    WITH FIX: New Root detects Old Root is sparse (993 items) and creates SizeTable.
         for (var i = 0; i < 33; i++)
-        { 
-        //    This was put here for debugging reasons. You need to make TailLen public for thes to work
-        //    if (list.TailLen == 32)
-        //        Console.WriteLine(321);
+            //    This was put here for debugging reasons. You need to make TailLen public for thes to work
+            //    if (list.TailLen == 32)
+            //        Console.WriteLine(321);
             list = list.Add(2000 + i);
-        }
 
         Assert.That(1026, Is.EqualTo(list.Count));
 

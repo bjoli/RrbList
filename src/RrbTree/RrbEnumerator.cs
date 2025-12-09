@@ -11,7 +11,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
     // --- Hoisted Hot Path Fields (Unchanged!) ---
     private T[]? _currentItems;
     private int _leafIndex;
-    private int _leafLen;       // Now clamped to the range!
+    private int _leafLen; // Now clamped to the range!
     private int _totalIndex;
     // --------------------------------------------
 
@@ -21,12 +21,16 @@ public struct RrbEnumerator<T> : IEnumerator<T>
     private int _depth;
 
     // Default constructor (Full list)
-    public RrbEnumerator(RrbList<T> list) 
-        : this(list, 0, list.Count) { }
+    public RrbEnumerator(RrbList<T> list)
+        : this(list, 0, list.Count)
+    {
+    }
 
     // Start Index constructor
-    public RrbEnumerator(RrbList<T> list, int startIndex) 
-        : this(list, startIndex, list.Count - startIndex) { }
+    public RrbEnumerator(RrbList<T> list, int startIndex)
+        : this(list, startIndex, list.Count - startIndex)
+    {
+    }
 
     // Range constructor
     public RrbEnumerator(RrbList<T> list, int startIndex, int count)
@@ -39,9 +43,9 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         _list = list;
         _startIndex = startIndex;
         _endIndex = startIndex + count; // Store exclusive end
-        
+
         _totalIndex = startIndex - 1;
-        _currentItems = null; 
+        _currentItems = null;
         _leafIndex = -1;
         _leafLen = 0;
 
@@ -67,6 +71,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
             _totalIndex++;
             return true;
         }
+
         return MoveNextRare();
     }
 
@@ -77,33 +82,29 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         if (_totalIndex + 1 >= _endIndex) return false;
 
         _totalIndex++;
-        
+
         // 1. Check Tail
-        int tailOffset = _list.Count - _list.TailLen;
+        var tailOffset = _list.Count - _list.TailLen;
         if (_totalIndex >= tailOffset)
         {
             var tail = _list.Tail;
             _currentItems = tail.Items;
-            
+
             // Calculate where we are in the tail
             _leafIndex = _totalIndex - tailOffset;
-            
+
             // CAP THE LENGTH: Stop at tail end OR range end
-            int tailEnd = _endIndex - tailOffset;
+            var tailEnd = _endIndex - tailOffset;
             _leafLen = Math.Min(tail.Len, tailEnd);
-            
+
             return true;
         }
 
         // 2. Traverse Tree
         if (_currentItems == null)
-        {
             SetupStack(_list.Root!, _list.Shift, _totalIndex);
-        }
         else
-        {
             AdvanceStack();
-        }
 
         return true;
     }
@@ -119,7 +120,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         {
             var internalNode = (InternalNode<T>)current;
             var (childIndex, relativeIndex) = GetChildIndex(internalNode, targetIndex, currentShift);
-            
+
             _path[_depth] = current;
             _pathIndexes[_depth] = childIndex;
 
@@ -142,8 +143,8 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         // We know we want to yield N items total.
         // Remaining items in range = _endIndex - _totalIndex.
         // End bound for this leaf = _leafIndex + remaining.
-        
-        int remainingInRange = _endIndex - _totalIndex;
+
+        var remainingInRange = _endIndex - _totalIndex;
         _leafLen = Math.Min(leaf.Len, _leafIndex + remainingInRange);
     }
 
@@ -173,22 +174,23 @@ public struct RrbEnumerator<T> : IEnumerator<T>
                 var leaf = (LeafNode<T>)current;
                 _currentItems = leaf.Items;
                 _leafIndex = 0;
-                
+
                 // CAP THE LENGTH:
                 // We are at the start of a new leaf.
                 // We are at global position _totalIndex.
                 // Remaining range = _endIndex - _totalIndex.
-                int remainingInRange = _endIndex - _totalIndex;
+                var remainingInRange = _endIndex - _totalIndex;
                 _leafLen = Math.Min(leaf.Len, remainingInRange);
-                
+
                 return;
             }
+
             d--;
         }
 
         throw new InvalidOperationException("Iterator state corrupt.");
     }
-    
+
     // Use the helper!
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static (int, int) GetChildIndex(InternalNode<T> node, int index, int shift)
@@ -196,30 +198,36 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         // Copy the robust helper logic from RrbAlgorithm here to keep the struct self-contained
         if (node.SizeTable != null)
         {
-            int childIndex = 0;
+            var childIndex = 0;
             while (childIndex < node.Len && node.SizeTable[childIndex] <= index) childIndex++;
-            int prevCount = childIndex > 0 ? node.SizeTable[childIndex - 1] : 0;
+            var prevCount = childIndex > 0 ? node.SizeTable[childIndex - 1] : 0;
             return (childIndex, index - prevCount);
         }
         else
         {
-            int childIndex = (index >> shift) & Constants.RRB_MASK;
-            int childStart = childIndex << shift;
+            var childIndex = (index >> shift) & Constants.RRB_MASK;
+            var childStart = childIndex << shift;
             return (childIndex, index - childStart);
         }
     }
 
     // Duck typing for foreach
-    public RrbEnumerator<T> GetEnumerator() => this;
+    public RrbEnumerator<T> GetEnumerator()
+    {
+        return this;
+    }
 
     public void Reset()
     {
         _totalIndex = _startIndex - 1;
-        _currentItems = null; 
+        _currentItems = null;
         _leafIndex = -1;
         _leafLen = 0;
         _depth = 0;
     }
 
-    public void Dispose() { _currentItems = null; }
+    public void Dispose()
+    {
+        _currentItems = null;
+    }
 }
