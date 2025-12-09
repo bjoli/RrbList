@@ -6,7 +6,7 @@ pvectors, but with an extra twist: you are now allowed to do fast splits and mer
 inserting elements arbitrarily. Those extras come with a cost, but only when you use them. Other than that the tree is exactly like clojures tries.
 
 Concatenations and splits are O(log N) in RRB-trees, but they will result in a slightly unbalanced tree, where lookups
-now rely on a 32-long look up table of how indices, but only for the paths that have done a slice/merge.
+now rely on a 32-long look up table of how indices are layed out, but only for the paths that have done a slice/merge.
 
 This started as a port of   [C-RRB by Jean Niklas l'Orange](https://github.com/hypirion/c-rrb), but made some different
 choices along the way.
@@ -29,8 +29,33 @@ http://hypirion.com/thesis
     {
         sum += list;
     }
+    
+    // Unless we are specifically using a builder (see below)
+    // nothing changes the original list
+    var list3 = list.merge(list2);
+    
+    // If we want faster update or appendings, we can use a builder.
+    // This sets up a builder with a "fat tail" of 1024 elements, meaning we get faster appends. 
+    // Like this it is about 2.5x slower to build than List<int>,
+    // which is pretty ok for building a tree.
+    
+    var buildme = RrbBuilder<int>(1024);
+    buildme.Add(11);
+    buildme.Add(65);
+    
+    foreach (int b in Enumerable.Range(0, 10000)) 
+    {
+        buildme.Add(b);
+    }
+    
+    // in the end we make it persistent:
+    var persistent = buildme.ToImmutable();
+    
+    
 
 ```
+RrbList efficiently supports split, slice, merge, indexing and index based updates. Adding to that, the interfaces IEnumerable and IImmutableList are implemented. 
+
 
 
 # Things that have to be made better before a stable release
@@ -53,10 +78,16 @@ While the original port was mine and mine only, and I _did_ get things working j
 
 I had wanted to write RRB trees for scheme ever since I had a beer with Phil Bagwell, but despite trying twice I never really made it work. With c# I was much closer to c-rrb, which is a nice high quality implementation in c so I decided to give it a try.
 
-So what is done by the ai? First of all: all of RrbEnumerator*.cs. Then most of the basic tests. The split function in RrbAlgorithms and RrbList has substantial parts written by AI. PromoteTail in RrbAlgorithm and Normalize in RrbList.cs are also actually completely AI. All of the code that just utilizes already existing code to implement IImmutableList is also ai. The code I wrote myself there is new functionality stuff, that should probably just be copied verbatim into RrbList.cs
+So what is done by the ai? First of all: all of RrbEnumerator*.cs. Then most of the basic tests. The split function in RrbAlgorithms and RrbList has substantial parts written by AI. PromoteTail in RrbAlgorithm and Normalize in RrbList.cs are also actually completely AI (and currently untested!). All of the code that just utilizes already existing code to implement IImmutableList is also ai. The code I wrote myself there is new functionality stuff, that should probably just be copied verbatim into RrbList.cs
 
 Other than that, I think AI mostly sent me down wrong paths while trying to fix bugs. It especially wasted my time when debugging tail pushing. All in all, it was a net positive though. 
 
 # Why not N=32 finger trees?
 
-Because I value my sanity. I am not a programmer, and lets just call my theoretical rigor "throwing things at the compiler and hope my tests work". I spent more time debugging tail push issues than I will ever admit (concat was nothing in comparison, which is odd because it should be much more complex). A prefix has so many more issues. 
+Because I value my sanity. I am not a programmer, and lets just call my theoretical rigor "throwing things at the compiler and hope my tests work". I spent more time debugging tail push issues than I will ever admit (concat was nothing in comparison, which is odd because it should be much more complex). A prefix has so many more issues than a tail. 
+
+# Potential speedups
+
+I do think there are some potential speedups that I see as someone who has never written anything serious in C# before. A lot of the casting is done in places where it would make sense to do it using Unsafe.As. 
+
+RemoveAt() and Insert() should probably both rely on some kind of zipping instead of slice/split/merge. I have a removeat implementation that adds considerable complexity, but does not really preform that much better - which it really should. Did I say I don't really know C#?
