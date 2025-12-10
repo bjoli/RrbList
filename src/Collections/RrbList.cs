@@ -182,41 +182,77 @@ public sealed partial class RrbList<T> where T : notnull
      * <param name="index">The zero-based index of the element to get.</param>
      * <returns>The element at the specified index.</returns>
      */
+    // public T this[int index]
+    // {
+    //     get
+    //     {
+    //         if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
+    //
+    //         var tailOffset = Count - TailLen;
+    //         if (index >= tailOffset) return Tail.Items[index - tailOffset];
+    //
+    //         var current = Root!;
+    //
+    //         for (var shift = Shift; shift > 0; shift -= Constants.RRB_BITS)
+    //         {
+    //             var internalNode = (InternalNode<T>)current;
+    //             int childIndex;
+    //
+    //             if (internalNode.SizeTable != null)
+    //             {
+    //                 childIndex = 0;
+    //                 while (internalNode.SizeTable[childIndex] <= index) childIndex++;
+    //                 if (childIndex > 0) index -= internalNode.SizeTable[childIndex - 1];
+    //             }
+    //             else
+    //             {
+    //                 childIndex = (index >> shift) & Constants.RRB_MASK;
+    //             }
+    //
+    //             current = internalNode.Children[childIndex]!;
+    //         }
+    //
+    //
+    //         return ((LeafNode<T>)current).Items[index & Constants.RRB_MASK];
+    //     }
+    // }
+    // Here we have an indexer that uses AVX for indexing into relaxed nodes. It is about 1.65x faster for a relaxed
+    // operation.
     public T this[int index]
     {
         get
         {
-            if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
-
-            var tailOffset = Count - TailLen;
-            if (index >= tailOffset) return Tail.Items[index - tailOffset];
-
-            var current = Root!;
-
-            for (var shift = Shift; shift > 0; shift -= Constants.RRB_BITS)
+            if ((uint)index >= (uint)Count) throw new IndexOutOfRangeException();
+    
+            int tailOffset = Count - TailLen;
+            if (index >= tailOffset)
             {
-                var internalNode = (InternalNode<T>)current;
-                int childIndex;
-
-                if (internalNode.SizeTable != null)
-                {
-                    childIndex = 0;
-                    while (internalNode.SizeTable[childIndex] <= index) childIndex++;
-                    if (childIndex > 0) index -= internalNode.SizeTable[childIndex - 1];
-                }
-                else
-                {
-                    childIndex = (index >> shift) & Constants.RRB_MASK;
-                }
-
+                // Maybe use Unsafe.Add while we are at it?
+                return Tail.Items[index - tailOffset];
+            }
+    
+            Node<T> current = Root!;
+    
+            for (int shift = Shift; shift > 0; shift -= Constants.RRB_BITS)
+            {
+                // Uses an unsafe cast.
+                var internalNode = RrbAlgorithm.AsInternal(current);
+            
+                // AVX-accelerated Lookup + Relative Index Calculation
+                // This handles both Dense (bit shift) and Relaxed (AVX search) paths correctly.
+                var (childIndex, relativeIndex) = RrbAlgorithm.GetChildIndexAvx(internalNode, index, shift);
+    
+                // Set index and current node.
+                index = relativeIndex;
                 current = internalNode.Children[childIndex]!;
             }
-
-
-            return ((LeafNode<T>)current).Items[index & Constants.RRB_MASK];
+        
+            // Final Leaf Access
+            // We use 'index' directly because GetChildIndexAvx ensures it is relative 
+            // to the start of this leaf. The mask could be elided, i think.
+            return RrbAlgorithm.AsLeaf(current).Items[index & Constants.RRB_MASK];
         }
     }
-
 
     /**
      * <summary>

@@ -163,7 +163,7 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
 
         equalityComparer ??= EqualityComparer<T>.Default;
 
-        // RrbTree doesn't support efficient reverse iteration yet.
+        // Collections doesn't support efficient reverse iteration yet.
         // We use direct indexing, which is O(log N) per item.
         // If this is too slow, we would need to implement RrbReverseEnumerator.
         for (var i = 0; i < count; i++)

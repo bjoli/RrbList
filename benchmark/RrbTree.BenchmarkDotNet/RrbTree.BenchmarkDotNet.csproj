@@ -12,7 +12,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\RrbTree\RrbTree.csproj"/>
+        <ProjectReference Include="..\..\src\Collections\Collections.csproj" />
     </ItemGroup>
 
 </Project>

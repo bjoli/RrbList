@@ -7,13 +7,17 @@ public class RrbBenchmarks
 {
     private const int N = 10000;
     private RrbList<int> _list;
+    private RrbList<int> unbalanced;
     private List<int> _list2;
+    
 
     [GlobalSetup]
     public void Setup()
     {
         _list = new RrbList<int>(Enumerable.Range(0, N));
         _list2 = new List<int>(Enumerable.Range(0, N));
+
+        unbalanced = misc.MakeUnbalanced(35000);
     }
 
 
@@ -33,12 +37,24 @@ public class RrbBenchmarks
         return sum;
     }
 
+
+
     [Benchmark]
     public long IterRrb()
     {
         long sum = 0;
         foreach (var i in _list) sum += i;
 
+        return sum;
+    }
+    
+    [Benchmark]
+    public long IndexUnbalanced()
+    {
+        long sum = 0;
+        for (int i = 0; i < unbalanced.Count; i+=2)
+            sum += unbalanced[i];
+        
         return sum;
     }
 

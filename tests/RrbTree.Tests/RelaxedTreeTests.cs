@@ -188,4 +188,16 @@ public class RelaxedTreeTests
         var val = list[1000];
         Assert.That(2007, Is.EqualTo(val), "Failed to retrieve item from the 'gap' zone.");
     }
+    
+    [Test]
+    public void IndexUnbalanced()
+    {
+        var unbalanced = misc.MakeUnbalanced(35000);
+        long sum = 0;
+        for (int i = 0; i < unbalanced.Count; i+=2 )
+            sum += unbalanced[i];
+        Console.WriteLine(sum);
+        Console.WriteLine(unbalanced.ToString());
+        Assert.That(1, Is.Not.EqualTo(sum));
+    }
 }

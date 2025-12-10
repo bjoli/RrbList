@@ -1,4 +1,7 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace Collections;
 
@@ -82,7 +85,7 @@ internal static class RrbAlgorithm
 
         var internalNode = (InternalNode<T>)root;
 
-        var (childIndex, subIndex) = GetChildIndex(internalNode, index, shift);
+        var (childIndex, subIndex) = GetChildIndexAvx(internalNode, index, shift);
 
         if (childIndex >= internalNode.Len) throw new IndexOutOfRangeException();
 
@@ -108,7 +111,7 @@ internal static class RrbAlgorithm
     {
         if (shift == 0)
         {
-            var leaf = (LeafNode<T>)node;
+            var leaf = AsLeaf(node);
             if (leaf.Len == limit) return leaf;
 
             var newItems = new T[limit];
@@ -116,9 +119,9 @@ internal static class RrbAlgorithm
             return new LeafNode<T>(newItems, limit, null);
         }
 
-        var internalNode = (InternalNode<T>)node;
+        var internalNode = AsInternal(node);
 
-        var (childIdx, indexInChild) = GetChildIndex(internalNode, limit - 1, shift);
+        var (childIdx, indexInChild) = GetChildIndexAvx(internalNode, limit - 1, shift);
 
         // Convert 0-based index back to 1-based count for the recursive limit
         var limitInChild = indexInChild + 1;
@@ -159,7 +162,7 @@ internal static class RrbAlgorithm
         // Left node is higher than right node
         if (leftShift > rightShift)
         {
-            var left = (InternalNode<T>)leftNode;
+            var left = AsInternal(leftNode);
             var lastChild = left.Children[left.Len - 1]!;
 
             int subShift;
@@ -172,7 +175,7 @@ internal static class RrbAlgorithm
         // Right node is higher than left node
         if (leftShift < rightShift)
         {
-            var right = (InternalNode<T>)rightNode;
+            var right = AsInternal(rightNode);
             var firstChild = right.Children[0]!;
 
             int subShift;
@@ -182,13 +185,13 @@ internal static class RrbAlgorithm
             return Rebalance(null, mergedMid, right, rightShift, subShift, out newShift);
         }
 
-        // Same height
+        // Same height. RightSHift is the same here
         if (leftShift == 0)
         {
             // Both are leaves.
             // If they fit in one leaf, merge them.
-            var leftLeaf = (LeafNode<T>)leftNode;
-            var rightLeaf = (LeafNode<T>)rightNode;
+            var leftLeaf = AsLeaf(leftNode);
+            var rightLeaf = AsLeaf(rightNode);
 
             if (leftLeaf.Len + rightLeaf.Len <= Constants.RRB_BRANCHING)
             {
@@ -207,10 +210,11 @@ internal static class RrbAlgorithm
             parent.Children[1] = rightNode;
             return parent;
         }
-
+        else // This is not required, but with the scope created, we can reuse left and right names.
         {
-            var left = (InternalNode<T>)leftNode;
-            var right = (InternalNode<T>)rightNode;
+            // Here we know the nodes are internal, so do an unsafe cast.
+            var left = AsInternal(leftNode);
+            var right = AsInternal(rightNode);
             var midLeft = left.Children[left.Len - 1]!;
             var midRight = right.Children[0]!;
 
@@ -229,7 +233,7 @@ internal static class RrbAlgorithm
     {
         if (shift == 0)
         {
-            var leaf = (LeafNode<T>)root;
+            var leaf = AsLeaf(root);
             if (splitIndex == 0) return (null, leaf);
             if (splitIndex == leaf.Len) return (leaf, null);
 
@@ -245,9 +249,10 @@ internal static class RrbAlgorithm
 
             return (leftNode, rightNode);
         }
-
-        var internalNode = (InternalNode<T>)root;
-        var (childIdx, splitInChild) = GetChildIndex(internalNode, splitIndex, shift);
+        
+        // Shift 0 is handled. We are above the leaves, and can do unsafe casts.
+        var internalNode = AsInternal(root);
+        var (childIdx, splitInChild) = GetChildIndexAvx(internalNode, splitIndex, shift);
         var (childLeft, childRight) = Split(internalNode.Children[childIdx]!, splitInChild,
             shift - Constants.RRB_BITS, token);
 
@@ -370,7 +375,7 @@ internal static class RrbAlgorithm
 
                 while (curSize < newSize)
                 {
-                    var srcLeaf = (LeafNode<T>)all[idx];
+                    var srcLeaf = AsLeaf(all[idx]);
                     var available = srcLeaf.Len - offset;
                     var toCopy = Math.Min(available, newSize - curSize);
 
@@ -463,7 +468,7 @@ internal static class RrbAlgorithm
             return inode.SizeTable[inode.Len - 1];
 
         // Balanced calculation
-        return (node.Len - 1) * (1 << shift) + CountTree(((InternalNode<T>)node).Children[node.Len - 1]!,
+        return (node.Len - 1) * (1 << shift) + CountTree(AsInternal(node).Children[node.Len - 1]!,
             shift - Constants.RRB_BITS);
     }
 
@@ -486,14 +491,14 @@ internal static class RrbAlgorithm
         // Base Case: Leaf
         if (shift == 0)
         {
-            var leaf = (LeafNode<T>)node;
+            var leaf = AsLeaf(node);
             var newLen = leaf.Len - toDrop;
             var newItems = new T[newLen];
             Array.Copy(leaf.Items, toDrop, newItems, 0, newLen);
             return new LeafNode<T>(newItems, newLen, null);
         }
 
-        var internalNode = (InternalNode<T>)node;
+        var internalNode = AsInternal(node);
         var (subidx, dropInChild) = GetChildIndex(internalNode, toDrop, shift);
 
 
@@ -604,7 +609,7 @@ internal static class RrbAlgorithm
 // Returns NULL if the node is physically full and the tail could not be accepted.
     private static Node<T>? TryPushDownTail<T>(Node<T> node, LeafNode<T> tailToInsert, int shift, OwnerToken? token)
     {
-        var internalNode = (InternalNode<T>)node;
+        var internalNode = AsInternal(node);
 
         // A. Base Case: Parent of Leaves (Shift == 5)
         if (shift == Constants.RRB_BITS)
@@ -612,7 +617,7 @@ internal static class RrbAlgorithm
             // 1. Try to MERGE into the last child
             if (internalNode.Len > 0)
             {
-                var lastChild = (LeafNode<T>)internalNode.Children[internalNode.Len - 1]!;
+                var lastChild = AsLeaf(internalNode.Children[internalNode.Len - 1]!);
 
                 // Check if there is room in the last leaf
                 if (lastChild.Len < Constants.RRB_BRANCHING)
@@ -796,7 +801,7 @@ internal static class RrbAlgorithm
         // It's a dense node.
         // However, if we are calling this on a child that forced relaxation, 
         // it might be a Dense node with 32 children where the last one is sparse
-        var denseNode = (InternalNode<T>)node;
+        var denseNode = AsInternal(node);
         var fullParams = (denseNode.Len - 1) * (1 << shift);
         var lastChildSize = GetTotalSize(denseNode.Children[denseNode.Len - 1]!, shift - Constants.RRB_BITS);
         return fullParams + lastChildSize;
@@ -849,7 +854,7 @@ internal static class RrbAlgorithm
 
         // Everything from here is Root overflow.
         // at this point, we know that root is an InternalNode due to TryPushDownTail failing.
-        var oldRootInode = (InternalNode<T>)root;
+        var oldRootInode = AsInternal(root);
 
 
         // We get the size of the old root.
@@ -934,15 +939,86 @@ internal static class RrbAlgorithm
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static unsafe (int childIndex, int relativeIndex) GetChildIndexAvx<T>(InternalNode<T> node, int index,
+        int shift)
+    {
+        // Dense / Balanced Path (No SizeTable)
+        if (node.SizeTable == null)
+        {
+            int childIndex = (index >> shift) & Constants.RRB_MASK;
+            int childStart = childIndex << shift;
+            return (childIndex, index - childStart);
+        }
+
+        // Relaxed Path (SizeTable Search)
+        int len = node.Len;
+        int i = 0;
+
+        // Use AVX2 if supported and profitable (at least one vector worth of data)
+        // This is at no cost to the old kind of indexing.
+        if (Avx2.IsSupported && len >= 8)
+        {
+            // Broadcast the target index to a vector of 8 ints
+            var vIndex = Vector256.Create(index);
+
+            fixed (int* tablePtr = node.SizeTable)
+            {
+                // Iterate in chunks of 8. 
+                // Since RRB_BRANCHING is 32, this runs max 4 times (0, 8, 16, 24).
+                for (; i <= len - 8; i += 8)
+                {
+                    var vTable = Avx.LoadVector256(tablePtr + i);
+
+                    // Compare: SizeTable[k] > index
+                    // Result is -1 (all 1s) for true, 0 for false.
+                    var vResult = Avx2.CompareGreaterThan(vTable, vIndex);
+
+                    // Extract sign bits to a generic integer mask (8 bits, one per element)
+                    int mask = Avx.MoveMask(vResult.AsSingle());
+
+                    if (mask != 0)
+                    {
+                        // Found a match in this chunk.
+                        // The first set bit corresponds to the first element > index.
+                        int offset = BitOperations.TrailingZeroCount(mask);
+                        int matchIndex = i + offset;
+
+                        int prevCount = matchIndex > 0 ? tablePtr[matchIndex - 1] : 0;
+                        return (matchIndex, index - prevCount);
+                    }
+                }
+            }
+        }
+        
+        // Handles remaining elements (if len % 8 != 0) or systems without AVX2.
+        // Also handles the case where the index is beyond the total size (i hits len).
+        var table = node.SizeTable;
+        while (i < len && table[i] <= index)
+        {
+            i++;
+        }
+
+        int prev = i > 0 ? table[i - 1] : 0;
+        return (i, index - prev);
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static InternalNode<T> AsInternal<T>(Node<T> node) => Unsafe.As<InternalNode<T>>(node);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static LeafNode<T> AsLeaf<T>(Node<T> node) => Unsafe.As<LeafNode<T>>(node);
+
 
     public static (Node<T>? NewNode, LeafNode<T> PromotedTail) PromoteTail<T>(Node<T> node, int shift,
         OwnerToken? token)
     {
         // Base Case: We are at the leaf level. 
         // This entire node becomes the promoted tail.
-        if (shift == 0) return (null, (LeafNode<T>)node);
-
-        var internalNode = (InternalNode<T>)node;
+        if (shift == 0) return (null, AsLeaf(node));
+        
+        // From here we know the node is internal, since leaf nodes are handled above.
+        var internalNode = AsInternal(node);
         var lastIdx = internalNode.Len - 1;
         var lastChild = internalNode.Children[lastIdx]!;
 
