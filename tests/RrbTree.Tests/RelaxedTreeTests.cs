@@ -190,14 +190,20 @@ public class RelaxedTreeTests
     }
     
     [Test]
-    public void IndexUnbalanced()
+    public void IterUnbalanced()
     {
         var unbalanced = misc.MakeUnbalanced(35000);
         long sum = 0;
-        for (int i = 0; i < unbalanced.Count; i+=2 )
+        long sum2 = 0;
+        
+        // I am just mostly trying to see if this raises an exception.
+        for (int i = 0; i < unbalanced.Count; i+=1 )
             sum += unbalanced[i];
-        Console.WriteLine(sum);
-        Console.WriteLine(unbalanced.ToString());
-        Assert.That(1, Is.Not.EqualTo(sum));
+
+        foreach (var item in unbalanced)
+        {
+            sum2 += item;
+        }
+        Assert.That(sum2, Is.EqualTo(sum));
     }
 }
