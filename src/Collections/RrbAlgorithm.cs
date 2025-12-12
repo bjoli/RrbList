@@ -426,6 +426,7 @@ internal static class RrbAlgorithm
     }
 
 
+    
     private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
     {
         var sizes = new int[node.Len];
