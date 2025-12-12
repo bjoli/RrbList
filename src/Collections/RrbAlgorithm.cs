@@ -461,17 +461,6 @@ internal static class RrbAlgorithm
         return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, null);
     }
 
-    private static int CountTree_old<T>(Node<T> node, int shift)
-    {
-        if (shift == 0) return node.Len;
-        // relaxed, just use the size table
-        if (node is InternalNode<T> inode && inode.SizeTable != null)
-            return inode.SizeTable[inode.Len - 1];
-
-        // Balanced calculation
-        return (node.Len - 1) * (1 << shift) + CountTree(AsInternal(node).Children[node.Len - 1]!,
-            shift - Constants.RRB_BITS);
-    }
     
     private static int CountTree<T>(Node<T> node, int shift)
     {
