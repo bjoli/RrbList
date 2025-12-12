@@ -10,12 +10,9 @@ using System.Net.Quic;
 using Collections; // Ensure this matches your namespace
 
 [MemoryDiagnoser]
-// Orders the result table: Fast -> Slow
-//[Orderer(SummaryOrderPolicy.FastestToSlowest)]
-//[Orderer(SummaryOrderPolicy.Method)]
+[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 [Orderer(SummaryOrderPolicy.Declared)]
-// Adds a column ranking them 1, 2, 3
-[RankColumn] 
+[RankColumn]
 public class RrbListBenchmarks
 {
     // Run for small, medium, and large lists to see scaling
