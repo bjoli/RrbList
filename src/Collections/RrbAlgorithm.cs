@@ -428,7 +428,7 @@ internal static class RrbAlgorithm
 
     private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
     {
-        var sizes = new int[node.Len];
+        Span<int> sizes = stackalloc int[node.Len];
         var sum = 0;
         var childShift = shift - Constants.RRB_BITS;
 
@@ -457,10 +457,10 @@ internal static class RrbAlgorithm
 
         // If balanced, discard the array and pass null.
         // This enables the fast-path bit-shift indexing in RrbList.
-        return new InternalNode<T>(node.Children, isBalanced ? null : sizes, node.Len, null);
+        return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, null);
     }
 
-    private static int CountTree<T>(Node<T> node, int shift)
+    private static int CountTree_old<T>(Node<T> node, int shift)
     {
         if (shift == 0) return node.Len;
         // relaxed, just use the size table
@@ -470,6 +470,39 @@ internal static class RrbAlgorithm
         // Balanced calculation
         return (node.Len - 1) * (1 << shift) + CountTree(AsInternal(node).Children[node.Len - 1]!,
             shift - Constants.RRB_BITS);
+    }
+    
+    private static int CountTree<T>(Node<T> node, int shift)
+    {
+        int totalSize = 0;
+
+        // Iterate down the rightmost edge until we hit a leaf or a relaxed node
+        while (shift > 0)
+        {
+            // Optimization: Use unsafe cast for speed, we know it's Internal because shift > 0
+            var internalNode = AsInternal(node);
+
+            // Fast Path: Relaxed Node
+            // If the node has a SizeTable, we can stop immediately. The table holds the accurate total count.
+            if (internalNode.SizeTable != null)
+            {
+                return totalSize + internalNode.SizeTable[internalNode.Len - 1];
+            }
+
+            // Dense Path
+            // We know that in a dense node, all children except the last one are fully populated.
+            // We calculate the size of the full siblings and accumulate it.
+            // Math: (ChildCount - 1) * CapacityOfOneChild
+            totalSize += (internalNode.Len - 1) * (1 << shift);
+
+            // Move down to the last child to continue counting
+            node = internalNode.Children[internalNode.Len - 1]!;
+            shift -= Constants.RRB_BITS;
+        }
+
+        // Base Case: Leaf Node
+        // We add the actual number of elements in the final leaf.
+        return totalSize + node.Len;
     }
 
     private static InternalNode<T> CopyInternal<T>(InternalNode<T> orig, int start, int len)
@@ -911,34 +944,9 @@ internal static class RrbAlgorithm
         parent.Children[1] = right;
         return parent;
     }
-    //
-    // [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    // private static (int childIndex, int relativeIndex) GetChildIndex<T>(InternalNode<T> node, int index, int shift)
-    // {
-    //     if (node.SizeTable != null)
-    //     {
-    //         var childIndex = 0;
-    //         // Search for the slot where size > index
-    //         while (childIndex < node.Len && node.SizeTable[childIndex] <= index) childIndex++;
-    //
-    //         // Calculate relative index for the child
-    //         var prevCount = childIndex > 0 ? node.SizeTable[childIndex - 1] : 0;
-    //         return (childIndex, index - prevCount);
-    //     }
-    //     else
-    //     {
-    //         // Dense/Balanced logic
-    //         var childIndex = (index >> shift) & Constants.RRB_MASK;
-    //
-    //         // IMPORTANT: For dense nodes, the relative index is just masking 
-    //         // IF we assume the child is also dense. But if the child is Relaxed, 
-    //         // it expects a 0-based index.
-    //         // It is safer to always subtract the base.
-    //         var childStart = childIndex << shift;
-    //         return (childIndex, index - childStart);
-    //     }
-    // }
-    //
+    
+    // This is a method to get the child index. If the node is dense it does a regular dense search
+    // if it is relaxed, it uses AVX to search 8 elements at a time.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static unsafe (int childIndex, int relativeIndex) GetChildIndexAvx<T>(InternalNode<T> node, int index,
         int shift)
