@@ -90,14 +90,6 @@ public sealed partial class RrbList<T> where T : notnull
         TailLen = temp.TailLen;
     }
 
-    /**
-     * <summary>
-     *     Returns the current depth (height) of the tree.
-     *     A depth of 0 means the list is empty or only has a tail.
-     *     A depth of 1 means one level of leaves.
-     * </summary>
-     */
-    public int Depth => Shift / Constants.RRB_BITS;
 
     /**
      * <summary>
@@ -182,40 +174,6 @@ public sealed partial class RrbList<T> where T : notnull
      * <param name="index">The zero-based index of the element to get.</param>
      * <returns>The element at the specified index.</returns>
      */
-    // public T this[int index]
-    // {
-    //     get
-    //     {
-    //         if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
-    //
-    //         var tailOffset = Count - TailLen;
-    //         if (index >= tailOffset) return Tail.Items[index - tailOffset];
-    //
-    //         var current = Root!;
-    //
-    //         for (var shift = Shift; shift > 0; shift -= Constants.RRB_BITS)
-    //         {
-    //             var internalNode = (InternalNode<T>)current;
-    //             int childIndex;
-    //
-    //             if (internalNode.SizeTable != null)
-    //             {
-    //                 childIndex = 0;
-    //                 while (internalNode.SizeTable[childIndex] <= index) childIndex++;
-    //                 if (childIndex > 0) index -= internalNode.SizeTable[childIndex - 1];
-    //             }
-    //             else
-    //             {
-    //                 childIndex = (index >> shift) & Constants.RRB_MASK;
-    //             }
-    //
-    //             current = internalNode.Children[childIndex]!;
-    //         }
-    //
-    //
-    //         return ((LeafNode<T>)current).Items[index & Constants.RRB_MASK];
-    //     }
-    // }
     // Here we have an indexer that uses AVX for indexing into relaxed nodes. It is about 1.65x faster for a relaxed
     // operation.
     public T this[int index]
@@ -584,7 +542,7 @@ public sealed partial class RrbList<T> where T : notnull
         if (index == Count) return (this, Empty);
 
 
-        // Case A: Split is inside the Tail
+        // Simple case: Split is inside the Tail
         var treeCount = Count - TailLen;
         if (index >= treeCount)
         {
@@ -597,17 +555,16 @@ public sealed partial class RrbList<T> where T : notnull
             return (left, right);
         }
 
-        // Case B: Split is inside the Tree
+        // Sad case: Split is inside the Tree
         // 1. Split the Tree
         var (treeL, treeR) = RrbAlgorithm.Split(Root!, index, Shift, null);
 
-        // 2. Left List gets treeL + empty tail (or we could try to fetch a tail from treeL?)
+        // Left List gets treeL + empty tail
         // Simplest valid state: Left has empty tail.
         var leftList = new RrbList<T>(treeL, LeafNode<T>.Empty, index, Shift, 0);
-        //.Normalize();
-        // TODO: should we normalize here?
+        //.Normalize(); // we should probably normalize if the list was dense to begin with. 
 
-        // 3. Right List gets treeR + original Tail
+        // Right List gets treeR + original Tail
         var rightList = new RrbList<T>(treeR, Tail, Count - index, Shift, TailLen);
 
         return (leftList, rightList);
@@ -638,35 +595,146 @@ public sealed partial class RrbList<T> where T : notnull
     public RrbList<T> Insert(int index, T item)
     {
         if (index < 0 || index > Count) throw new IndexOutOfRangeException();
+
+        // Index is at the very end: delegate to Add
         if (index == Count) return Add(item);
-        if (index == 0) return new RrbList<T>().Add(item).Merge(this);
 
-        // Single traversal split
-        var (left, right) = Split(index);
+        int tailOffset = Count - TailLen;
 
-        var nel = left.Add(item);
-        var ner = nel.Merge(right);
-        return ner;
+        // Insert into Tail
+        if (index >= tailOffset)
+        {
+            // Tail has room (Simple Insert)
+            if (TailLen < Constants.RRB_BRANCHING)
+            {
+                var newTailItems = new T[TailLen + 1];
+                int idxInTail = index - tailOffset;
+
+                if (idxInTail > 0)
+                    Array.Copy(Tail.Items, 0, newTailItems, 0, idxInTail);
+
+                newTailItems[idxInTail] = item;
+
+                if (idxInTail < TailLen)
+                    Array.Copy(Tail.Items, idxInTail, newTailItems, idxInTail + 1, TailLen - idxInTail);
+
+                return new RrbList<T>(Root, new LeafNode<T>(newTailItems, TailLen + 1, null), Count + 1, Shift,
+                    TailLen + 1);
+            }
+            // Or: Tail is Full (Split & Promote)
+            else
+            {
+                // We have 32 items + 1 new item = 33 items.
+                // We split them: [0..31] -> Promoted to Tree, [32] -> New Tail.
+
+                var tempItems = new T[Constants.RRB_BRANCHING + 1];
+                int idxInTail = index - tailOffset;
+
+                // Construct the virtual 33-item array
+                Array.Copy(Tail.Items, 0, tempItems, 0, idxInTail);
+                tempItems[idxInTail] = item;
+                Array.Copy(Tail.Items, idxInTail, tempItems, idxInTail + 1, TailLen - idxInTail);
+
+                // Create the Full Node to push into tree
+                var promotedItems = new T[Constants.RRB_BRANCHING];
+                Array.Copy(tempItems, 0, promotedItems, 0, Constants.RRB_BRANCHING);
+                var promotedLeaf = new LeafNode<T>(promotedItems, Constants.RRB_BRANCHING, null);
+
+                // Create the New Tail (with the 1 remaining item)
+                var newTailItems = new T[1];
+                newTailItems[0] = tempItems[Constants.RRB_BRANCHING];
+                var newTail = new LeafNode<T>(newTailItems, 1, null);
+
+                // Update Tree
+                int newShift = Shift;
+                // Reuse the logic from Add/Push to grow the tree
+                Node<T> newRoot = RrbAlgorithm.AppendLeafToTree(Root, promotedLeaf, ref newShift, null);
+
+                return new RrbList<T>(newRoot, newTail, Count + 1, newShift, 1);
+            }
+        }
+
+        // Insert into Tree (Recursive)
+        // InsertRecursive only worries about the tree epart. 
+        var result = RrbAlgorithm.InsertRecursive(Root!, index, item, Shift, null);
+
+        Node<T> treeRoot = result.NewNode;
+        int treeShift = Shift;
+
+        // Handle Root Overflow
+        if (result.Overflow != null)
+        {
+            treeShift += Constants.RRB_BITS;
+            var children = new Node<T>[] { result.NewNode, result.Overflow };
+
+            // Calculate sizes for the new root
+            var sizes = new int[2];
+            sizes[0] = RrbAlgorithm.GetTotalSize(result.NewNode, Shift);
+            sizes[1] = sizes[0] + RrbAlgorithm.GetTotalSize(result.Overflow, Shift);
+
+            treeRoot = new InternalNode<T>(children, sizes, 2, null);
+        }
+
+        return new RrbList<T>(treeRoot, Tail, Count + 1, treeShift, TailLen);
     }
-
+    
     /**
-     * <summary>
-     *     Removes the element at the specified index.
-     * </summary>
-     * <param name="index">The zero-based index of the element to remove.</param>
-     * <returns>A new list with the element removed.</returns>
-     */
+      * <summary>
+      *     Removes the element at the specified index.
+      * </summary>
+      * <param name="index">The zero-based index of the element to remove.</param>
+      * <returns>A new list with the element removed.</returns>
+      */
+
     public RrbList<T> RemoveAt(int index)
     {
-        // One could think that this approach is slower than using Split(index) and pop.
-        // but it usually isn't,
-
         if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
-        var left = Slice(0, index);
-        var right = Slice(index + 1, Count - (index + 1));
-        return left.Merge(right);
-    }
 
+        // Simple case: Index is in the Tail
+        int tailOffset = Count - TailLen;
+        if (index >= tailOffset)
+        {
+            int indexInTail = index - tailOffset;
+        
+            // Create new tail array
+            var newTailItems = new T[TailLen - 1];
+            if (indexInTail > 0)
+                Array.Copy(Tail.Items, 0, newTailItems, 0, indexInTail);
+            if (indexInTail < TailLen - 1)
+                Array.Copy(Tail.Items, indexInTail + 1, newTailItems, indexInTail, TailLen - indexInTail - 1);
+            
+            var newTail = new LeafNode<T>(newTailItems, newTailItems.Length, null);
+            return new RrbList<T>(Root, newTail, Count - 1, Shift, newTail.Len);
+        }
+
+        // Sad case: Index is in the Tree
+        // We execute a zip removal, which is always going to be faster than 
+        // removing using slice, but may end up with a more unbalanced tree
+    
+        Node<T>? newRoot = RrbAlgorithm.RemoveRecursive(Root!, index, Shift);
+        int newShift = Shift;
+
+        // Handle Root Collapse (if root became a single child)
+        // Only if we still have a tree (newRoot != null)
+        while (newRoot != null && 
+               newShift > 0 && 
+               newRoot is InternalNode<T> inode && 
+               inode.Len == 1)
+        {
+            // If the root has only 1 child, that child becomes the new root
+            newRoot = inode.Children[0];
+            newShift -= Constants.RRB_BITS;
+        }
+    
+        // If newRoot became null (tree empty), we just have the tail remaining.
+        if (newRoot == null)
+        {
+            // Shift should reset to 0 effectively, but we just pass 0.
+            return new RrbList<T>(null, Tail, TailLen, 0, TailLen);
+        }
+
+        return new RrbList<T>(newRoot, Tail, Count - 1, newShift, TailLen);
+    }
     /**
      * <summary>
      *     Returns a new, fully compacted (dense) version of this list.
@@ -690,18 +758,6 @@ public sealed partial class RrbList<T> where T : notnull
         return builder.ToImmutable();
     }
 
-    /**
-     * <summary>
-     *     Conditionally compacts the list if its depth exceeds the specified limit.
-     * </summary>
-     * <param name="maxDepth">The maximum allowed depth before compaction is triggered.</param>
-     * <returns>A compacted list if the depth was exceeded; otherwise, the original list.</returns>
-     */
-    public RrbList<T> CompactIfTooDeep(int maxDepth = 6)
-    {
-        if (Depth > maxDepth) return Compact();
-        return this;
-    }
 
     /**
      * <summary>
@@ -823,7 +879,7 @@ public sealed partial class RrbList<T> where T : notnull
      *     Verifies the internal structural integrity of the RRB-Tree. Throws an exception if an inconsistency is found.
      * </summary>
      */
-    public void VerifyIntegrity()
+    internal void VerifyIntegrity()
     {
         if (Root == null) return;
         VerifyNode(Root, Shift);

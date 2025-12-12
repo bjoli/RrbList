@@ -130,8 +130,6 @@ public class FuzzTest
                     }
             }
 
-            // just to be sure.
-            actual.VerifyIntegrity();
 
 
             // At the end, check EVERYTHING.

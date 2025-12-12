@@ -6,11 +6,14 @@ using BenchmarkDotNet.Running;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Collections.Generic;
+using System.Net.Quic;
 using Collections; // Ensure this matches your namespace
 
 [MemoryDiagnoser]
 // Orders the result table: Fast -> Slow
-[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+//[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+//[Orderer(SummaryOrderPolicy.Method)]
+[Orderer(SummaryOrderPolicy.Declared)]
 // Adds a column ranking them 1, 2, 3
 [RankColumn] 
 public class RrbListBenchmarks
@@ -20,6 +23,7 @@ public class RrbListBenchmarks
     public int N;
 
     private RrbList<int> _rrbList;
+    private RrbList<int> _rrbUnbalanced;
     private ImmutableList<int> _immutableList;
     private List<int> _list;
 
@@ -38,6 +42,7 @@ public class RrbListBenchmarks
 
         // 2. Initialize Lists
         _rrbList = RrbList<int>.Create(data);
+        _rrbUnbalanced = misc.MakeUnbalanced(N);
         _immutableList = ImmutableList.Create(data);
         _list = new List<int>(data);
 
@@ -60,6 +65,12 @@ public class RrbListBenchmarks
         // Sample start, middle, end to cover all tree depths
         return _rrbList[0] + _rrbList[_middleIndex] + _rrbList[N - 1];
     }
+    [Benchmark(Description = "RrbListUnbalanced[i]")]
+    public int Indexer_RrbListUnbalanced()
+    {
+        // Sample start, middle, end to cover all tree depths
+        return _rrbUnbalanced[0] + _rrbUnbalanced[_middleIndex] + _rrbUnbalanced[^16];
+    }
 
     [Benchmark(Description = "ImmutableList[i]")]
     public int Indexer_ImmutableList()
@@ -78,6 +89,9 @@ public class RrbListBenchmarks
     
     [Benchmark(Description = "RrbList.SetItem")]
     public RrbList<int> SetItem_RrbList() => _rrbList.SetItem(_middleIndex, 999);
+    
+    [Benchmark(Description = "RrbListUnbalanced.SetItem")]
+    public RrbList<int> SetItem_RrbListUnbalanced() => _rrbList.SetItem(_middleIndex, 999);
 
     [Benchmark(Description = "ImmutableList.SetItem")]
     public ImmutableList<int> SetItem_ImmutableList() => _immutableList.SetItem(_middleIndex, 999);
@@ -90,6 +104,10 @@ public class RrbListBenchmarks
     
     [Benchmark(Description = "RrbList.Insert")]
     public RrbList<int> Insert_RrbList() => _rrbList.Insert(_middleIndex, 999);
+    
+    
+    [Benchmark(Description = "RrbListUnbalanced.Insert")]
+    public RrbList<int> Insert_RrbListUnbalanced() => _rrbUnbalanced.Insert(_middleIndex, 900);
 
     [Benchmark(Description = "ImmutableList.Insert")]
     public ImmutableList<int> Insert_ImmutableList() => _immutableList.Insert(_middleIndex, 999);
@@ -98,13 +116,15 @@ public class RrbListBenchmarks
     public void Insert_List()
     {
         _list.Insert(_middleIndex, 999);
-        _list.RemoveAt(_middleIndex); // Immediate cleanup to keep N constant
+        //_list.RemoveAt(_middleIndex);
     }
 
     // --- 4. REMOVE AT (Middle) ---
     
     [Benchmark(Description = "RrbList.RemoveAt")]
     public RrbList<int> RemoveAt_RrbList() => _rrbList.RemoveAt(_middleIndex);
+    [Benchmark(Description = "RrbListUnbalanced.RemoveAt")]
+    public RrbList<int> RemoveAt_RrbListUnbalanced() => _rrbUnbalanced.RemoveAt(_middleIndex);
 
     [Benchmark(Description = "ImmutableList.RemoveAt")]
     public ImmutableList<int> RemoveAt_ImmutableList() => _immutableList.RemoveAt(_middleIndex);
@@ -113,7 +133,7 @@ public class RrbListBenchmarks
     public void RemoveAt_List()
     {
         _list.RemoveAt(_middleIndex);
-        _list.Insert(_middleIndex, 0); // Cleanup
+        _list.Add(0); // Cleanup
     }
 
     // --- 5. ENUMERATION (Foreach) ---
@@ -126,6 +146,15 @@ public class RrbListBenchmarks
         foreach (var x in _rrbList) sum += x;
         return sum;
     }
+    
+    [Benchmark(Description = "RrbListUnbalanced.Foreach")]
+    public int Foreach_RrbListUnbalanced()
+    {
+        int sum = 0;
+        foreach (var x in _rrbUnbalanced) sum += x;
+        return sum;
+    }
+
 
     [Benchmark(Description = "ImmutableList.Foreach")]
     public int Foreach_ImmutableList()
@@ -148,6 +177,9 @@ public class RrbListBenchmarks
     
     [Benchmark(Description = "RrbList.Add")]
     public RrbList<int> Add_RrbList() => _rrbList.Add(999);
+    
+    [Benchmark(Description = "RrbListUnbalanced.Add")]
+    public RrbList<int> Add_RrbListUnbalanced() => _rrbUnbalanced.Add(999);
 
     [Benchmark(Description = "ImmutableList.Add")]
     public ImmutableList<int> Add_ImmutableList() => _immutableList.Add(999);
@@ -162,18 +194,27 @@ public class RrbListBenchmarks
     // --- 7. SLICE / GET RANGE ---
     
     [Benchmark(Description = "RrbList.Slice")]
-    public RrbList<int> Slice_RrbList() => _rrbList.Slice(_middleIndex / 2, 1000); // Slice 1000 items
+    public RrbList<int> Slice_RrbList() => _rrbList.Slice(_middleIndex / 2, N/4); // Slice 1000 items
 
+    
+    [Benchmark(Description = "RrbListUnbalanced.Slice")]
+    public RrbList<int> Slice_RrbListUnbalanced() => _rrbUnbalanced.Slice(_middleIndex / 2, N/4);
+    
+    
     [Benchmark(Description = "ImmutableList.GetRange")]
-    public IImmutableList<int> Slice_ImmutableList() => _immutableList.GetRange(_middleIndex / 2, 1000);
+    public IImmutableList<int> Slice_ImmutableList() => _immutableList.GetRange(_middleIndex / 2, N/4);
 
     [Benchmark(Description = "List.GetRange")]
-    public List<int> Slice_List() => _list.GetRange(_middleIndex / 2, 1000); // Allocates new list copy
+    public List<int> Slice_List() => _list.GetRange(_middleIndex / 2, N/4); // Allocates new list copy
     
     // --- 8. MERGE / ADD RANGE ---
     
     [Benchmark(Description = "RrbList.Merge")]
     public RrbList<int> Merge_RrbList() => _rrbList.Merge(_rrbChunk); // O(log N) tree merge
+    
+    
+    [Benchmark(Description = "RrbListUnbalanced.Merge")]
+    public RrbList<int> Merge_RrbListUnbalanced() => _rrbUnbalanced.Merge(_rrbChunk); // O(log N) tree merge
 
     [Benchmark(Description = "ImmutableList.AddRange")]
     public IImmutableList<int> Merge_ImmutableList() => _immutableList.AddRange(_immChunk);

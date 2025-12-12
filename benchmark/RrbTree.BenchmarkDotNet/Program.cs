@@ -8,6 +8,7 @@ public class RrbBenchmarks
     private const int N = 10000;
     private RrbList<int> _list;
     private RrbList<int> unbalanced;
+    private RrbList<int> balanced;
     private List<int> _list2;
     
 
@@ -18,6 +19,7 @@ public class RrbBenchmarks
         _list2 = new List<int>(Enumerable.Range(0, N));
 
         unbalanced = misc.MakeUnbalanced(35000);
+        balanced = new RrbList<int>(Enumerable.Range(0, 35000));
     }
 
 
@@ -106,6 +108,27 @@ public class RrbBenchmarks
     public RrbList<int> Slice_MiddleRrb()
     {
         return _list.Slice(N / 4, N / 2);
+    }
+
+    [Benchmark]
+    public int RemoveFromUnbalanced()
+    {
+        var l = unbalanced.RemoveAt(3456);
+        return unbalanced[3457];
+    }
+    
+    
+    [Benchmark]
+    public RrbList<int> InsertUnbalancedNew()
+    {
+        return unbalanced.Insert(400, -1);
+    }
+
+    
+    [Benchmark]
+    public RrbList<int> InsertBalancedNew()
+    {
+        return balanced.Insert(400, -1);
     }
 }
 
