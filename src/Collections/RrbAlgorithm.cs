@@ -429,7 +429,7 @@ internal static class RrbAlgorithm
     
     private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
     {
-        var sizes = new int[node.Len];
+        Span<int> sizes = stackalloc int[node.Len];
         var sum = 0;
         var childShift = shift - Constants.RRB_BITS;
 
@@ -458,7 +458,7 @@ internal static class RrbAlgorithm
 
         // If balanced, discard the array and pass null.
         // This enables the fast-path bit-shift indexing in RrbList.
-        return new InternalNode<T>(node.Children, isBalanced ? null : sizes, node.Len, null);
+        return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, null);
     }
 
     private static int CountTree_old<T>(Node<T> node, int shift)
