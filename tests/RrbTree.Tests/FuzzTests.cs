@@ -21,8 +21,8 @@ public class FuzzTest
         // printCode = true means that it outputs code you can paste into another file so
         // you can recreate the test (with as easier way to set breakpoints). Otherwise you can just 
         // reuse the seed printed at the end of a failed test.
-        var printCode = true;
-        var seed = 3813803;// Environment.TickCount;
+        var printCode = false;
+        var seed = Environment.TickCount;
         //int seed = 27306740; // Uncomment to reproduce a specific crash
 
 
