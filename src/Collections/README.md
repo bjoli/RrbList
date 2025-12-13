@@ -117,6 +117,22 @@ A lot of the casting is done in places where it would make sense to do it using 
 
 Following are some benchmarks comparing List, ImmutableList and RrbList (balanced and unbalanced). For some reason Addrange didn't work for lists, but I can't be bothered to re-run it. I didn't even look into it. This benchmarks Lookups, removals, iteration, slicing and merging. 
 
+To make sense of this: Nothing beats List<T> for adding an item to the end. RrbBuilder comes closest, but is still about 6x slower. 
+
+Indexing is also faster with List<int>. The dense RrbList comes closest, but is still much slower. 
+
+Inserting is a different beast: the unbalanced RrbList is the fastest. Don't look too close at the dense RrbList. One Insert will turn a dense list into an unbalanced list. The unbalanced list used in the benchmark is also _VERY_ unbalanced, meaning there is very little overhead when doing an insertion with regards to creating new lookup tables. 
+
+Iteration is a weird one as well. RrbList is a lot faster than ImmutableList, but a bit more than 3x slower than List<T>. Using the higher order function Fold, we remove the iterator overhead and end up slightly beating List<T> - despite the new deabstraction stuff in .net 10. Why? I believe List<T>, to ensure being correct, checks the lists version every time so that it does not try to iterate over a list that has been changed by another thread. using for(var i=0; i < mylist.Count; i++) {} will certainly be faster. 
+
+Merge: the tree (AVL?) in ImmutableList shows where it is king! I messed up the list benchmark, but list is slow. RrbTrees are about 3x slower, except for when N=10000. I suspect there is some tree growing going on for that particular N, or there is a bug or something. 
+
+RemoveAt: List<T> has a strong start but fails miserably after N=500. RrbList wins again. 
+
+SetItem: List<T> wins. ImmutableList is also reall fast. If you need to do a lot of SetItem, convert your RrbTree to a Builder and make sure to do a ToImmutable() and you are fine!.
+
+Slicing: RrbTrees win. List is slow above something like 500 items. ImmutableList is just slow. 
+
 ```
 
 BenchmarkDotNet v0.15.6, Linux openSUSE Tumbleweed-Slowroll
