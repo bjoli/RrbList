@@ -367,6 +367,13 @@ internal static class RrbAlgorithm
         for (var i = 0; i < slen; i++)
         {
             var newSize = plan[i];
+            
+            if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
+            {
+                newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
+                idx++;
+                continue;
+            }
 
             if (shufflingLeaves)
             {

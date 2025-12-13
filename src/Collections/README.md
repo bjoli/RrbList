@@ -145,117 +145,120 @@ Job=ShortRun  IterationCount=3  LaunchCount=1
 WarmupCount=3  
 
 ```
-| Method                         | N      | Mean            | Error          | StdDev        | Rank | Gen0    | Gen1    | Gen2   | Allocated |
-|--------------------------------|------- |----------------:|---------------:|--------------:|-----:|--------:|--------:|-------:|----------:|
-| RrbList.Add                    | 100    |      20.8773 ns |      3.0291 ns |     0.1660 ns |    3 |  0.0129 |       - |      - |     216 B |
-| RrbListUnbalanced.Add          | 100    |      21.0371 ns |      5.2589 ns |     0.2883 ns |    3 |  0.0124 |       - |      - |     208 B |
-| RrbBuilder.Add                 | 100    |       5.2861 ns |      2.5797 ns |     0.1414 ns |    2 |  0.0004 |  0.0004 |      - |       6 B |
-| ImmutableList.Add              | 100    |      49.6456 ns |      5.8750 ns |     0.3220 ns |    4 |  0.0215 |       - |      - |     360 B |
-| List.Add                       | 100    |       0.8645 ns |      0.0688 ns |     0.0038 ns |    1 |       - |       - |      - |         - |
-| RrbList.Add                    | 10000  |      22.3613 ns |      1.9116 ns |     0.1048 ns |    3 |  0.0186 |       - |      - |     312 B |
-| RrbListUnbalanced.Add          | 10000  |      24.8455 ns |      1.0210 ns |     0.0560 ns |    3 |  0.0181 |       - |      - |     304 B |
-| RrbBuilder.Add                 | 10000  |       5.1776 ns |      1.7968 ns |     0.0985 ns |    2 |  0.0004 |  0.0004 |      - |       6 B |
-| ImmutableList.Add              | 10000  |     103.2771 ns |     13.5309 ns |     0.7417 ns |    5 |  0.0416 |       - |      - |     696 B |
-| List.Add                       | 10000  |       0.8533 ns |      0.0189 ns |     0.0010 ns |    1 |       - |       - |      - |         - |
-| RrbList.Add                    | 100000 |      20.0090 ns |      1.3580 ns |     0.0744 ns |    3 |  0.0110 |       - |      - |     184 B |
-| RrbListUnbalanced.Add          | 100000 |      20.1300 ns |      2.3571 ns |     0.1292 ns |    3 |  0.0110 |       - |      - |     184 B |
-| RrbBuilder.Add                 | 100000 |       4.9867 ns |      0.4296 ns |     0.0235 ns |    2 |  0.0004 |  0.0004 |      - |       6 B |
-| ImmutableList.Add              | 100000 |     128.2558 ns |      6.1147 ns |     0.3352 ns |    6 |  0.0501 |       - |      - |     840 B |
-| List.Add                       | 100000 |       0.8655 ns |      0.1477 ns |     0.0081 ns |    1 |       - |       - |      - |         - |
-| INDEXING                       |        |                 |                |               |      |         |         |        |           |
-| &#39;RrbList[i]&#39;           | 100    |       3.3763 ns |      0.3386 ns |     0.0186 ns |    2 |       - |       - |      - |         - |
-| &#39;RrbListUnbalanced[i]&#39; | 100    |       6.6502 ns |      0.3552 ns |     0.0195 ns |    3 |       - |       - |      - |         - |
-| &#39;ImmutableList[i]&#39;     | 100    |       6.0984 ns |      0.0807 ns |     0.0044 ns |    3 |       - |       - |      - |         - |
-| &#39;List[i]&#39;              | 100    |       0.5297 ns |      0.1066 ns |     0.0058 ns |    1 |       - |       - |      - |         - |
-| &#39;RrbList[i]&#39;           | 10000  |       5.1548 ns |      0.2591 ns |     0.0142 ns |    3 |       - |       - |      - |         - |
-| &#39;RrbListUnbalanced[i]&#39; | 10000  |       8.7793 ns |      0.3960 ns |     0.0217 ns |    4 |       - |       - |      - |         - |
-| &#39;ImmutableList[i]&#39;     | 10000  |      13.0575 ns |      0.5833 ns |     0.0320 ns |    5 |       - |       - |      - |         - |
-| &#39;List[i]&#39;              | 10000  |       0.5147 ns |      0.1299 ns |     0.0071 ns |    1 |       - |       - |      - |         - |
-| &#39;RrbList[i]&#39;           | 100000 |       8.7757 ns |      0.6378 ns |     0.0350 ns |    4 |       - |       - |      - |         - |
-| &#39;RrbListUnbalanced[i]&#39; | 100000 |      19.1461 ns |      0.8570 ns |     0.0470 ns |    6 |       - |       - |      - |         - |
-| &#39;ImmutableList[i]&#39;     | 100000 |      16.4992 ns |      0.8412 ns |     0.0461 ns |    6 |       - |       - |      - |         - |
-| &#39;List[i]&#39;              | 100000 |       0.5135 ns |      0.0659 ns |     0.0036 ns |    1 |       - |       - |      - |         - |
-| INSERTION                      |        |                 |                |               |      |         |         |        |           |
-| RrbList.Insert                 | 100    |      55.6649 ns |      4.1836 ns |     0.2293 ns |    2 |  0.0368 |       - |      - |     616 B |
-| RrbListUnbalanced.Insert       | 100    |      38.1325 ns |      4.5723 ns |     0.2506 ns |    1 |  0.0225 |       - |      - |     376 B |
-| ImmutableList.Insert           | 100    |      54.3543 ns |      1.7339 ns |     0.0950 ns |    2 |  0.0215 |       - |      - |     360 B |
-| List.Insert                    | 100    |  28,741.2230 ns | 80,391.5650 ns | 4,406.5330 ns |    6 |       - |       - |      - |         - |
-| RrbList.Insert                 | 10000  |     149.4920 ns |      5.6913 ns |     0.3120 ns |    4 |  0.0772 |       - |      - |    1296 B |
-| RrbListUnbalanced.Insert       | 10000  |      81.9220 ns |      4.4557 ns |     0.2442 ns |    3 |  0.0559 |       - |      - |     936 B |
-| ImmutableList.Insert           | 10000  |     104.3892 ns |     14.2476 ns |     0.7810 ns |    4 |  0.0416 |       - |      - |     696 B |
-| List.Insert                    | 10000  |  28,712.0783 ns | 80,253.7490 ns | 4,398.9788 ns |    6 |       - |       - |      - |         - |
-| RrbList.Insert                 | 100000 |     249.0454 ns |     36.3651 ns |     1.9933 ns |    5 |  0.1082 |       - |      - |    1816 B |
-| RrbListUnbalanced.Insert       | 100000 |     111.0756 ns |      5.7860 ns |     0.3171 ns |    4 |  0.0802 |  0.0002 |      - |    1344 B |
-| ImmutableList.Insert           | 100000 |     126.6094 ns |      5.8932 ns |     0.3230 ns |    4 |  0.0501 |       - |      - |     840 B |
-| List.Insert                    | 100000 |  30,528.9306 ns | 75,448.5174 ns | 4,135.5878 ns |    6 |       - |       - |      - |         - |
-| ITERATION                      |        |                 |                |               |      |         |         |        |           |
-| RrbList.Foreach                | 100    |      42.9767 ns |      0.9497 ns |     0.0521 ns |    2 |  0.0110 |       - |      - |     184 B |
-| RrbList.Fold                   | 100    |      30.2994 ns |      0.6332 ns |     0.0347 ns |    1 |       - |       - |      - |         - |
-| RrbListUnbalanced.Foreach      | 100    |      42.1677 ns |      3.1336 ns |     0.1718 ns |    2 |  0.0110 |       - |      - |     184 B |
-| ImmutableList.Foreach          | 100    |     357.6232 ns |      4.2211 ns |     0.2314 ns |    3 |       - |       - |      - |         - |
-| List.Foreach                   | 100    |      29.7331 ns |      4.5676 ns |     0.2504 ns |    1 |       - |       - |      - |         - |
-| RrbList.Foreach                | 10000  |   7,777.5934 ns |  1,689.6155 ns |    92.6135 ns |    6 |       - |       - |      - |     184 B |
-| RrbList.Fold                   | 10000  |   2,386.8257 ns |    812.8188 ns |    44.5533 ns |    4 |       - |       - |      - |         - |
-| RrbListUnbalanced.Foreach      | 10000  |   7,903.6939 ns |    254.4942 ns |    13.9497 ns |    6 |       - |       - |      - |     184 B |
-| ImmutableList.Foreach          | 10000  |  38,747.9564 ns |  7,272.4103 ns |   398.6254 ns |    8 |       - |       - |      - |         - |
-| List.Foreach                   | 10000  |   2,963.2499 ns |     88.6812 ns |     4.8609 ns |    5 |       - |       - |      - |         - |
-| RrbList.Foreach                | 100000 |  76,714.5789 ns |  8,360.1734 ns |   458.2493 ns |    9 |       - |       - |      - |     184 B |
-| RrbList.Fold                   | 100000 |  29,285.1984 ns |    509.3808 ns |    27.9209 ns |    7 |       - |       - |      - |         - |
-| RrbListUnbalanced.Foreach      | 100000 |  78,869.6132 ns |  2,881.0004 ns |   157.9174 ns |    9 |       - |       - |      - |     184 B |
-| ImmutableList.Foreach          | 100000 | 539,318.2256 ns |  9,041.4092 ns |   495.5901 ns |   10 |       - |       - |      - |         - |
-| List.Foreach                   | 100000 |  29,938.3745 ns |  5,106.9372 ns |   279.9285 ns |    7 |       - |       - |      - |         - |
-| MERGE                          |        |                 |                |               |      |         |         |        |           |
-| RrbList.Merge                  | 100    |     761.2164 ns |    150.8209 ns |     8.2670 ns |    3 |  0.5131 |  0.0105 |      - |    8584 B |
-| RrbListUnbalanced.Merge        | 100    |     770.8139 ns |    161.2283 ns |     8.8375 ns |    3 |  0.5150 |  0.0124 |      - |    8624 B |
-| ImmutableList.AddRange         | 100    |     280.3818 ns |      6.6126 ns |     0.3625 ns |    1 |  0.0415 |       - |      - |     696 B |
-| List.AddRange                  | 100    |              NA |             NA |            NA |    ? |      NA |      NA |     NA |        NA |
-| RrbList.Merge                  | 10000  |   2,244.8289 ns |    635.4286 ns |    34.8300 ns |    5 |  1.0948 |  0.0496 |      - |   18368 B |
-| RrbListUnbalanced.Merge        | 10000  |   2,348.5464 ns |    479.0286 ns |    26.2572 ns |    5 |  1.1902 |  0.0496 |      - |   19928 B |
-| ImmutableList.AddRange         | 10000  |     403.6397 ns |     26.3271 ns |     1.4431 ns |    2 |  0.0644 |       - |      - |    1080 B |
-| List.AddRange                  | 10000  |              NA |             NA |            NA |    ? |      NA |      NA |     NA |        NA |
-| RrbList.Merge                  | 100000 |   1,846.5999 ns |    308.6939 ns |    16.9206 ns |    4 |  0.9327 |  0.0343 |      - |   15632 B |
-| RrbListUnbalanced.Merge        | 100000 |   1,865.5073 ns |    391.1176 ns |    21.4385 ns |    4 |  0.9975 |  0.0381 |      - |   16696 B |
-| ImmutableList.AddRange         | 100000 |     420.0270 ns |     19.3301 ns |     1.0596 ns |    2 |  0.0701 |       - |      - |    1176 B |
-| List.AddRange                  | 100000 |              NA |             NA |            NA |    ? |      NA |      NA |     NA |        NA |
-| REMOVEAT                       |        |                 |                |               |      |         |         |        |           |
-| RrbList.RemoveAt               | 100    |      37.2778 ns |      4.7184 ns |     0.2586 ns |    2 |  0.0225 |       - |      - |     376 B |
-| RrbListUnbalanced.RemoveAt     | 100    |      37.4144 ns |      1.0913 ns |     0.0598 ns |    2 |  0.0220 |       - |      - |     368 B |
-| ImmutableList.RemoveAt         | 100    |      50.1468 ns |      3.3032 ns |     0.1811 ns |    3 |  0.0186 |       - |      - |     312 B |
-| List.RemoveAt                  | 100    |       9.3606 ns |      0.4024 ns |     0.0221 ns |    1 |       - |       - |      - |         - |
-| RrbList.RemoveAt               | 10000  |      78.6869 ns |      6.7632 ns |     0.3707 ns |    4 |  0.0559 |       - |      - |     936 B |
-| RrbListUnbalanced.RemoveAt     | 10000  |      84.4466 ns |     18.0636 ns |     0.9901 ns |    4 |  0.0554 |       - |      - |     928 B |
-| ImmutableList.RemoveAt         | 10000  |     109.0606 ns |     43.1413 ns |     2.3647 ns |    5 |  0.0386 |       - |      - |     648 B |
-| List.RemoveAt                  | 10000  |     135.4603 ns |      2.9796 ns |     0.1633 ns |    6 |       - |       - |      - |         - |
-| RrbList.RemoveAt               | 100000 |     112.2070 ns |      3.0688 ns |     0.1682 ns |    5 |  0.0802 |  0.0002 |      - |    1344 B |
-| RrbListUnbalanced.RemoveAt     | 100000 |     105.8480 ns |      9.9871 ns |     0.5474 ns |    5 |  0.0798 |  0.0002 |      - |    1336 B |
-| ImmutableList.RemoveAt         | 100000 |     145.1719 ns |     19.6618 ns |     1.0777 ns |    6 |  0.0472 |       - |      - |     792 B |
-| List.RemoveAt                  | 100000 |   1,516.4727 ns |     40.5737 ns |     2.2240 ns |    7 |       - |       - |      - |         - |
-| SETITEM                        |        |                 |                |               |      |         |         |        |           |
-| RrbList.SetItem                | 100    |      29.3385 ns |      5.5445 ns |     0.3039 ns |    5 |  0.0200 |       - |      - |     336 B |
-| RrbBuilder.SetItem             | 100    |       6.9917 ns |      0.3386 ns |     0.0186 ns |    2 |       - |       - |      - |         - |
-| RrbListUnbalanced.SetItem      | 100    |      28.9992 ns |      1.1419 ns |     0.0626 ns |    5 |  0.0200 |       - |      - |     336 B |
-| ImmutableList.SetItem          | 100    |      11.0461 ns |      2.2683 ns |     0.1243 ns |    3 |  0.0043 |       - |      - |      72 B |
-| &#39;List[i] = x&#39;          | 100    |       0.3994 ns |      0.0960 ns |     0.0053 ns |    1 |       - |       - |      - |         - |
-| RrbList.SetItem                | 10000  |      49.7590 ns |      3.6062 ns |     0.1977 ns |    6 |  0.0430 |  0.0001 |      - |     720 B |
-| RrbBuilder.SetItem             | 10000  |      11.9896 ns |      0.8585 ns |     0.0471 ns |    3 |       - |       - |      - |         - |
-| RrbListUnbalanced.SetItem      | 10000  |      50.7703 ns |     12.8995 ns |     0.7071 ns |    6 |  0.0430 |  0.0001 |      - |     720 B |
-| ImmutableList.SetItem          | 10000  |      11.0051 ns |      3.3754 ns |     0.1850 ns |    3 |  0.0043 |       - |      - |      72 B |
-| &#39;List[i] = x&#39;          | 10000  |       0.3538 ns |      0.0565 ns |     0.0031 ns |    1 |       - |       - |      - |         - |
-| RrbList.SetItem                | 100000 |      68.7256 ns |      1.8857 ns |     0.1034 ns |    7 |  0.0597 |       - |      - |    1000 B |
-| RrbBuilder.SetItem             | 100000 |      16.5795 ns |      0.5039 ns |     0.0276 ns |    4 |       - |       - |      - |         - |
-| RrbListUnbalanced.SetItem      | 100000 |      68.7790 ns |      2.0288 ns |     0.1112 ns |    7 |  0.0597 |       - |      - |    1000 B |
-| ImmutableList.SetItem          | 100000 |      11.4811 ns |      2.7991 ns |     0.1534 ns |    3 |  0.0043 |       - |      - |      72 B |
-| &#39;List[i] = x&#39;          | 100000 |       0.3541 ns |      0.1114 ns |     0.0061 ns |    1 |       - |       - |      - |         - |
-| SLICING                        |        |                 |                |               |      |         |         |        |           |
-| RrbList.Slice                  | 100    |      53.8754 ns |      2.0287 ns |     0.1112 ns |    2 |  0.0291 |       - |      - |     488 B |
-| RrbListUnbalanced.Slice        | 100    |      60.4404 ns |      5.6016 ns |     0.3070 ns |    2 |  0.0310 |       - |      - |     520 B |
-| ImmutableList.GetRange         | 100    |     215.4070 ns |     15.4836 ns |     0.8487 ns |    6 |  0.0730 |       - |      - |    1224 B |
-| List.GetRange                  | 100    |       9.6326 ns |      2.2846 ns |     0.1252 ns |    1 |  0.0096 |       - |      - |     160 B |
-| RrbList.Slice                  | 10000  |     103.8645 ns |     11.9988 ns |     0.6577 ns |    3 |  0.0707 |  0.0001 |      - |    1184 B |
-| RrbListUnbalanced.Slice        | 10000  |     112.0552 ns |     16.6685 ns |     0.9137 ns |    3 |  0.0583 |       - |      - |     976 B |
-| ImmutableList.GetRange         | 10000  |  31,928.9612 ns |  5,151.5664 ns |   282.3747 ns |    8 |  7.1411 |  1.3428 |      - |  120024 B |
-| List.GetRange                  | 10000  |     240.7226 ns |     39.5415 ns |     2.1674 ns |    6 |  0.6013 |  0.0215 |      - |   10056 B |
-| RrbList.Slice                  | 100000 |     136.3709 ns |      9.8910 ns |     0.5422 ns |    4 |  0.0932 |       - |      - |    1560 B |
-| RrbListUnbalanced.Slice        | 100000 |     167.9345 ns |      8.1150 ns |     0.4448 ns |    5 |  0.1004 |  0.0002 |      - |    1680 B |
-| ImmutableList.GetRange         | 100000 | 875,558.1751 ns | 54,004.5409 ns | 2,960.1711 ns |    9 | 71.2891 | 36.1328 |      - | 1200024 B |
-| List.GetRange                  | 100000 |   9,735.5468 ns |    862.2519 ns |    47.2629 ns |    7 |  9.1400 |  9.1400 | 9.1400 |  100107 B |
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
+| Merge_List                 | 10000           | 1            | 100    |   1,491.1712 ns |   14418 B |
+| Merge_List                 | 10000           | 1            | 10000  |   1,042.3289 ns |    8184 B |
+| Merge_List                 | 10000           | 1            | 100000 |   1,095.4181 ns |   10160 B |
+|                            |                 |              |        |                 |           |
+| RrbList.Add                | Default         | 16           | 100    |      21.1779 ns |     216 B |
+| RrbListUnbalanced.Add      | Default         | 16           | 100    |      20.6035 ns |     208 B |
+| RrbBuilder.Add             | Default         | 16           | 100    |       5.1905 ns |       6 B |
+| ImmutableList.Add          | Default         | 16           | 100    |      51.7088 ns |     360 B |
+| List.Add                   | Default         | 16           | 100    |       0.8742 ns |         - |
+| RrbList.Add                | Default         | 16           | 10000  |      22.6743 ns |     312 B |
+| RrbListUnbalanced.Add      | Default         | 16           | 10000  |      22.4126 ns |     304 B |
+| RrbBuilder.Add             | Default         | 16           | 10000  |       5.0100 ns |       6 B |
+| ImmutableList.Add          | Default         | 16           | 10000  |     100.2479 ns |     696 B |
+| List.Add                   | Default         | 16           | 10000  |       1.0967 ns |         - |
+| RrbList.Add                | Default         | 16           | 100000 |      19.5442 ns |     184 B |
+| RrbListUnbalanced.Add      | Default         | 16           | 100000 |      19.5919 ns |     184 B |
+| RrbBuilder.Add             | Default         | 16           | 100000 |       5.0455 ns |       6 B |
+| ImmutableList.Add          | Default         | 16           | 100000 |     125.5090 ns |     840 B |
+| List.Add                   | Default         | 16           | 100000 |       0.8690 ns |         - |
+|                            |                 |              |        |                 |           |
+| 'RrbList[i]'               | Default         | 16           | 100    |       3.0858 ns |         - |
+| 'RrbListUnbalanced[i]'     | Default         | 16           | 100    |       6.0696 ns |         - |
+| 'ImmutableList[i]'         | Default         | 16           | 100    |       6.1713 ns |         - |
+| 'List[i]'                  | Default         | 16           | 100    |       0.5268 ns |         - |
+| 'RrbList[i]'               | Default         | 16           | 10000  |       5.2383 ns |         - |
+| 'RrbListUnbalanced[i]'     | Default         | 16           | 10000  |       9.0488 ns |         - |
+| 'ImmutableList[i]'         | Default         | 16           | 10000  |      13.1443 ns |         - |
+| 'List[i]'                  | Default         | 16           | 10000  |       0.5144 ns |         - |
+| 'RrbList[i]'               | Default         | 16           | 100000 |       8.6894 ns |         - |
+| 'RrbListUnbalanced[i]'     | Default         | 16           | 100000 |      19.0616 ns |         - |
+| 'ImmutableList[i]'         | Default         | 16           | 100000 |      16.1348 ns |         - |
+| 'List[i]'                  | Default         | 16           | 100000 |       0.5031 ns |         - |
+|                            |                 |              |        |                 |           |
+| RrbList.Insert             | Default         | 16           | 100    |      54.7249 ns |     616 B |
+| RrbListUnbalanced.Insert   | Default         | 16           | 100    |      38.6621 ns |     376 B |
+| ImmutableList.Insert       | Default         | 16           | 100    |      55.9821 ns |     360 B |
+| List.Insert                | Default         | 16           | 100    |  28,247.8769 ns |         - |
+| RrbList.Insert             | Default         | 16           | 10000  |     147.8293 ns |    1296 B |
+| RrbListUnbalanced.Insert   | Default         | 16           | 10000  |      81.7153 ns |     936 B |
+| ImmutableList.Insert       | Default         | 16           | 10000  |     103.3818 ns |     696 B |
+| List.Insert                | Default         | 16           | 10000  |  28,819.7762 ns |         - |
+| RrbList.Insert             | Default         | 16           | 100000 |     244.8282 ns |    1816 B |
+| RrbListUnbalanced.Insert   | Default         | 16           | 100000 |     111.2889 ns |    1344 B |
+| ImmutableList.Insert       | Default         | 16           | 100000 |     124.8185 ns |     840 B |
+| List.Insert                | Default         | 16           | 100000 |  30,127.2639 ns |         - |
+|                            |                 |              |        |                 |           |
+| RrbList.Foreach            | Default         | 16           | 100    |      43.1705 ns |     184 B |
+| RrbList.Fold               | Default         | 16           | 100    |      30.1015 ns |         - |
+| RrbListUnbalanced.Foreach  | Default         | 16           | 100    |      47.5692 ns |     184 B |
+| ImmutableList.Foreach      | Default         | 16           | 100    |     356.0021 ns |         - |
+| List.Foreach               | Default         | 16           | 100    |      29.6789 ns |         - |
+| RrbList.Foreach            | Default         | 16           | 10000  |   7,663.4364 ns |     184 B |
+| RrbList.Fold               | Default         | 16           | 10000  |   2,476.4009 ns |         - |
+| RrbListUnbalanced.Foreach  | Default         | 16           | 10000  |   7,827.4871 ns |     184 B |
+| ImmutableList.Foreach      | Default         | 16           | 10000  |  38,369.5174 ns |         - |
+| List.Foreach               | Default         | 16           | 10000  |   2,927.6839 ns |         - |
+| RrbList.Foreach            | Default         | 16           | 100000 |  75,298.0843 ns |     184 B |
+| RrbList.Fold               | Default         | 16           | 100000 |  29,049.6601 ns |         - |
+| RrbListUnbalanced.Foreach  | Default         | 16           | 100000 |  78,462.0114 ns |     184 B |
+| ImmutableList.Foreach      | Default         | 16           | 100000 | 510,527.8887 ns |         - |
+| List.Foreach               | Default         | 16           | 100000 |  29,490.5313 ns |         - |
+|                            |                 |              |        |                 |           |
+| RrbList.Merge              | Default         | 16           | 100    |     745.5818 ns |    8584 B |
+| RrbListUnbalanced.Merge    | Default         | 16           | 100    |     747.2307 ns |    8624 B |
+| ImmutableList.AddRange     | Default         | 16           | 100    |     274.0214 ns |     696 B |
+| RrbList.Merge              | Default         | 16           | 10000  |   2,199.6677 ns |   18368 B |
+| RrbListUnbalanced.Merge    | Default         | 16           | 10000  |   2,329.8189 ns |   19928 B |
+| ImmutableList.AddRange     | Default         | 16           | 10000  |     395.8682 ns |    1080 B |
+| RrbList.Merge              | Default         | 16           | 100000 |   1,815.4709 ns |   15632 B |
+| RrbListUnbalanced.Merge    | Default         | 16           | 100000 |   1,817.7346 ns |   16696 B |
+| ImmutableList.AddRange     | Default         | 16           | 100000 |     414.0976 ns |    1176 B |
+|                            |                 |              |        |                 |           |
+| RrbList.RemoveAt           | Default         | 16           | 100    |      35.4821 ns |     376 B |
+| RrbListUnbalanced.RemoveAt | Default         | 16           | 100    |      36.6727 ns |     368 B |
+| ImmutableList.RemoveAt     | Default         | 16           | 100    |      49.6739 ns |     312 B |
+| List.RemoveAt              | Default         | 16           | 100    |       8.9983 ns |         - |
+| RrbList.RemoveAt           | Default         | 16           | 10000  |      79.3879 ns |     936 B |
+| RrbListUnbalanced.RemoveAt | Default         | 16           | 10000  |      79.9860 ns |     928 B |
+| ImmutableList.RemoveAt     | Default         | 16           | 10000  |     106.5024 ns |     648 B |
+| List.RemoveAt              | Default         | 16           | 10000  |     134.8199 ns |         - |
+| RrbList.RemoveAt           | Default         | 16           | 100000 |     109.3106 ns |    1344 B |
+| RrbListUnbalanced.RemoveAt | Default         | 16           | 100000 |     103.5729 ns |    1336 B |
+| ImmutableList.RemoveAt     | Default         | 16           | 100000 |     149.4996 ns |     792 B |
+| List.RemoveAt              | Default         | 16           | 100000 |   1,501.4633 ns |         - |
+|                            |                 |              |        |                 |           |
+| RrbList.SetItem            | Default         | 16           | 100    |      29.1431 ns |     336 B |
+| RrbBuilder.SetItem         | Default         | 16           | 100    |       7.0031 ns |         - |
+| RrbListUnbalanced.SetItem  | Default         | 16           | 100    |      30.5691 ns |     336 B |
+| ImmutableList.SetItem      | Default         | 16           | 100    |      11.0566 ns |      72 B |
+| 'List[i] = x'              | Default         | 16           | 100    |       0.3931 ns |         - |
+| RrbList.SetItem            | Default         | 16           | 10000  |      50.6992 ns |     720 B |
+| RrbBuilder.SetItem         | Default         | 16           | 10000  |      11.6400 ns |         - |
+| RrbListUnbalanced.SetItem  | Default         | 16           | 10000  |      50.7436 ns |     720 B |
+| ImmutableList.SetItem      | Default         | 16           | 10000  |      10.3386 ns |      72 B |
+| 'List[i] = x'              | Default         | 16           | 10000  |       0.3597 ns |         - |
+| RrbList.SetItem            | Default         | 16           | 100000 |      71.0247 ns |    1000 B |
+| RrbBuilder.SetItem         | Default         | 16           | 100000 |      16.4514 ns |         - |
+| RrbListUnbalanced.SetItem  | Default         | 16           | 100000 |      69.3106 ns |    1000 B |
+| ImmutableList.SetItem      | Default         | 16           | 100000 |      10.6086 ns |      72 B |
+| 'List[i] = x'              | Default         | 16           | 100000 |       0.3733 ns |         - |
+|                            |                 |              |        |                 |           |
+| RrbList.Slice              | Default         | 16           | 100    |      55.0680 ns |     488 B |
+| RrbListUnbalanced.Slice    | Default         | 16           | 100    |      60.3776 ns |     520 B |
+| ImmutableList.GetRange     | Default         | 16           | 100    |     212.8562 ns |    1224 B |
+| List.GetRange              | Default         | 16           | 100    |       9.3927 ns |     160 B |
+| RrbList.Slice              | Default         | 16           | 10000  |     103.4191 ns |    1184 B |
+| RrbListUnbalanced.Slice    | Default         | 16           | 10000  |     114.4577 ns |     976 B |
+| ImmutableList.GetRange     | Default         | 16           | 10000  |  34,684.2435 ns |  120024 B |
+| List.GetRange              | Default         | 16           | 10000  |     247.9265 ns |   10056 B |
+| RrbList.Slice              | Default         | 16           | 100000 |     145.8090 ns |    1560 B |
+| RrbListUnbalanced.Slice    | Default         | 16           | 100000 |     173.6493 ns |    1680 B |
+| ImmutableList.GetRange     | Default         | 16           | 100000 | 873,411.3213 ns | 1200024 B |
+| List.GetRange              | Default         | 16           | 100000 |  10,701.3566 ns |  100103 B |
+

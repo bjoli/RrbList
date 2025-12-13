@@ -45,17 +45,19 @@ public class RrbBuilder<T>
         _tailLen = 0;
     }
 
-    internal RrbBuilder(RrbList<T> list)
+    internal RrbBuilder(RrbList<T> list, int tailCapacity = Constants.RRB_BRANCHING)
     {
         _token = new OwnerToken();
         _root = list.Root;
         Count = list.Count;
         _shift = list.Shift;
         _tailLen = list.TailLen;
-        _tailCapacity = Constants.RRB_BRANCHING;
+        _tailCapacity = tailCapacity;
         _tail = new T[_tailCapacity];
         list.Tail.Items.CopyTo(_tail, 0);
     }
+    
+    
 
     /**
      * <summary>

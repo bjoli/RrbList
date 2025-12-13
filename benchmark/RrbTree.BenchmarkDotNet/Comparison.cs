@@ -12,7 +12,7 @@ using Collections; // Ensure this matches your namespace
 [MemoryDiagnoser]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 [Orderer(SummaryOrderPolicy.Declared)]
-[RankColumn]
+[HideColumns("Error", "StdDev", "Rank", "Gen0", "Gen1", "Gen2")]
 public class RrbListBenchmarks
 {
     // Run for small, medium, and large lists to see scaling
@@ -40,7 +40,7 @@ public class RrbListBenchmarks
 
         // 2. Initialize Lists
         _rrbList = RrbList<int>.Create(data);
-        _rrbBuilder = _rrbList.ToBuilder();
+        _rrbBuilder = _rrbList.ToBuilder(1024);
         _rrbUnbalanced = misc.MakeUnbalanced(N);
         _immutableList = ImmutableList.Create(data);
         _list = new List<int>(data);
@@ -174,6 +174,7 @@ public class RrbListBenchmarks
         return _rrbList.Fold(0, (x, y) => x + y);
     }
     
+    
     [Benchmark(Description = "RrbListUnbalanced.Foreach")]
     [BenchmarkCategory("Iteration")]
     public int Foreach_RrbListUnbalanced()
@@ -264,13 +265,19 @@ public class RrbListBenchmarks
     [BenchmarkCategory("Merge")]
     public IImmutableList<int> Merge_ImmutableList() => _immutableList.AddRange(_immChunk);
 
-    [Benchmark(Description = "List.AddRange")]
-    [BenchmarkCategory("Merge")]
+    [IterationSetup(Target = nameof(Merge_List))]
+    public void ResetList()
+    {
+        // Reset the list to a clean state before the single run
+        
+        var data = Enumerable.Range(0, N).ToArray();
+        _list = new List<int>(data); 
+    }
+
+    [Benchmark]
+    [InvocationCount(10000)] // <--- Tells BDN: "Run this exactly once, then reset."
     public void Merge_List()
     {
         _list.AddRange(_listChunk);
-        // We let list grow here as remove range is expensive. 
-        // This makes this specific benchmark slightly biased as list grows per iteration,
-        // but for microbenchmark it's usually acceptable.
     }
 }

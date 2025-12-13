@@ -277,9 +277,9 @@ public sealed partial class RrbList<T> where T : notnull
      * </summary>
      * <returns>A new <see cref="RrbBuilder{T}" />.</returns>
      */
-    public RrbBuilder<T> ToBuilder()
+    public RrbBuilder<T> ToBuilder(int leafCapacify = Constants.RRB_BRANCHING)
     {
-        return new RrbBuilder<T>(this);
+        return new RrbBuilder<T>(this, leafCapacify);
     }
 
     private void CopyNode(Node<T> node, T[] array, int offset, int shift)
@@ -829,7 +829,7 @@ public sealed partial class RrbList<T> where T : notnull
      *     Verifies the internal structural integrity of the RRB-Tree. Throws an exception if an inconsistency is found.
      * </summary>
      */
-    internal void VerifyIntegrity()
+    public void VerifyIntegrity()
     {
         if (Root == null) return;
         VerifyNode(Root, Shift);
