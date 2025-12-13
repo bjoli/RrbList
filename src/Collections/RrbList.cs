@@ -410,7 +410,7 @@ public sealed partial class RrbList<T> where T : notnull
             }
         }
 
-        return new RrbList<T>(resultRoot, resultTail, count, resultShift, resultTail.Len).Normalize();
+        return new RrbList<T>(resultRoot, resultTail, count, resultShift, resultTail.Len);//.Normalize();
     }
 
     /**
@@ -511,8 +511,7 @@ public sealed partial class RrbList<T> where T : notnull
 
         // Left List gets treeL + empty tail
         // Simplest valid state: Left has empty tail.
-        var leftList = new RrbList<T>(treeL, LeafNode<T>.Empty, index, Shift, 0).Normalize();
-        //.Normalize(); // we should probably normalize if the list was dense to begin with. 
+        var leftList = new RrbList<T>(treeL, LeafNode<T>.Empty, index, Shift, 0);//.Normalize();
 
         // Right List gets treeR + original Tail
         var rightList = new RrbList<T>(treeR, Tail, Count - index, Shift, TailLen);
