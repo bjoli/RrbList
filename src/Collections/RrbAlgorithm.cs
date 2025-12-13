@@ -202,14 +202,23 @@ internal static class RrbAlgorithm
                 newShift = 0; // Still a leaf
                 return new LeafNode<T>(newItems, newItems.Length, null);
             }
-
+            
             // Cannot merge into one leaf. Create parent.
             newShift = Constants.RRB_BITS;
-            var parent = new InternalNode<T>(2, null);
-            parent.Children[0] = leftNode;
-            parent.Children[1] = rightNode;
-            return parent;
+    
+            // FIX: Check if we need a SizeTable
+            int[]? sizeTable = null;
+            if (leftLeaf.Len < Constants.RRB_BRANCHING)
+            {
+                sizeTable = new int[2];
+                sizeTable[0] = leftLeaf.Len;
+                sizeTable[1] = leftLeaf.Len + rightLeaf.Len;
+            }
+            
+            var newChildren = new Node<T>[] { leftNode, rightNode };
+            return new InternalNode<T>(newChildren, sizeTable, 2, null);
         }
+        
         else // This is not required, but with the scope created, we can reuse left and right names.
         {
             // Here we know the nodes are internal, so do an unsafe cast.
@@ -368,12 +377,12 @@ internal static class RrbAlgorithm
         {
             var newSize = plan[i];
             
-            if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
-            {
-                newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
-                idx++;
-                continue;
-            }
+             if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
+             {
+                 newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
+                 idx++;
+                 continue;
+             }
 
             if (shufflingLeaves)
             {
@@ -936,6 +945,19 @@ internal static class RrbAlgorithm
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Node<T> CreateNewParent<T>(Node<T> left, Node<T> right, OwnerToken? token)
     {
+        if (left.Len < Constants.RRB_BRANCHING)
+        {
+            var sizeTable = new int[token != null ? Constants.RRB_BRANCHING : 2];
+            sizeTable[0] = left.Len;
+            sizeTable[1] = left.Len + right.Len;
+
+            var children = new Node<T>?[token != null ? Constants.RRB_BRANCHING : 2];
+            children[0] = left;
+            children[1] = right;
+
+            return new InternalNode<T>(children, sizeTable, 2, token);
+        }
+        
         var parent = new InternalNode<T>(2, token);
         parent.Children[0] = left;
         parent.Children[1] = right;

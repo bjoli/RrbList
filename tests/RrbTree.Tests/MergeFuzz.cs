@@ -12,8 +12,8 @@ public class RrbFuzzTest
     // Configuration
     private const int Iterations = 100_000;
     private const int MaxPoolSize = 20;
-    private const int MaxInitialSize = 1000;
-    private const int Seed = 42; // Fixed seed for reproducibility
+    private const int MaxInitialSize = 10000;
+    private const int Seed = 41; // Fixed seed for reproducibility
 
     private readonly Random _rng = new Random(Seed);
     
@@ -43,14 +43,17 @@ public class RrbFuzzTest
             {
                 if (roll < 0.3) // 30% Split
                 {
+                   // Console.WriteLine("Split");
                     DoSplit();
                 }
                 else if (roll < 0.6 && _pool.Count >= 2) // 30% Merge (needs 2 items)
                 {
+                    Console.WriteLine("Merge");
                     DoMerge();
                 }
                 else // 40% Random Mutation (Insert/Remove/Set/Add) to dirty the trees
                 {
+                    Console.WriteLine("Mutation");
                     DoMutation();
                 }
             }
@@ -71,17 +74,20 @@ public class RrbFuzzTest
         int idx1 = _rng.Next(_pool.Count);
         int idx2 = _rng.Next(_pool.Count);
         if (idx1 == idx2) idx2 = (idx1 + 1) % _pool.Count;
-
+        
         var (rrb1, exp1) = _pool[idx1];
         var (rrb2, exp2) = _pool[idx2];
 
+
+        
         // 1. Perform RRB Merge
         var rrbResult = rrb1.Merge(rrb2);
 
         // 2. Perform Reference Merge
         var expResult = new List<int>(exp1);
         expResult.AddRange(exp2);
-
+        
+        Console.WriteLine(rrb1.ToString());
         // 3. Verify
         Verify(rrbResult, expResult, "Merge");
 
