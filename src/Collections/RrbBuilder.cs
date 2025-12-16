@@ -14,7 +14,7 @@ public class RrbBuilder<T>
     private Node<T>? _root;
     private int _shift;
     private int _tailLen;
-    private OwnerToken _token;
+    private OwnerId _token;
 
     /**
      * <summary>
@@ -37,7 +37,7 @@ public class RrbBuilder<T>
             throw new ArgumentException($"Capacity must be a multiple of {Constants.RRB_BRANCHING}.");
 
         _tailCapacity = leafCapacity;
-        _token = new OwnerToken();
+        _token = OwnerId.Next();
         // Allocate the fat tail immediately
         _tail = new T[_tailCapacity];
         Count = 0;
@@ -47,7 +47,7 @@ public class RrbBuilder<T>
 
     internal RrbBuilder(RrbList<T> list, int tailCapacity = Constants.RRB_BRANCHING)
     {
-        _token = new OwnerToken();
+        _token = OwnerId.Next();
         _root = list.Root;
         Count = list.Count;
         _shift = list.Shift;
@@ -189,11 +189,11 @@ public class RrbBuilder<T>
         {
             var chunkItems = new T[Constants.RRB_BRANCHING];
             Array.Copy(_tail, i * Constants.RRB_BRANCHING, chunkItems, 0, Constants.RRB_BRANCHING);
-            var leaf = new LeafNode<T>(chunkItems, Constants.RRB_BRANCHING, null); // Immutable
+            var leaf = new LeafNode<T>(chunkItems, Constants.RRB_BRANCHING, OwnerId.None); // Immutable
 
             // AppendLeafToTree is robust enough to handle when _root is null.
             // We previously checked it here, but it is no longer needed.
-            _root = RrbAlgorithm.AppendLeafToTree(_root, leaf, ref _shift, null); // Persistent push
+            _root = RrbAlgorithm.AppendLeafToTree(_root, leaf, ref _shift, OwnerId.None); // Persistent push
         }
 
         // Create final tail from remainder
@@ -202,7 +202,7 @@ public class RrbBuilder<T>
         {
             var tailItems = new T[remainder];
             Array.Copy(_tail, fullChunks * Constants.RRB_BRANCHING, tailItems, 0, remainder);
-            finalTail = new LeafNode<T>(tailItems, remainder, null);
+            finalTail = new LeafNode<T>(tailItems, remainder, OwnerId.None);
         }
         else
         {
@@ -214,7 +214,7 @@ public class RrbBuilder<T>
         if (frozenRoot is InternalNode<T> inode) frozenRoot = inode.Freeze();
         else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze();
 
-        _token = new OwnerToken();
+        _token = OwnerId.Next();
 
         return new RrbList<T>(frozenRoot, finalTail, Count, _shift, remainder);
     }

@@ -66,7 +66,7 @@ internal static class RrbAlgorithm
     }
 
 
-    public static Node<T> Update<T>(Node<T> root, int index, T value, int shift, OwnerToken? token)
+    public static Node<T> Update<T>(Node<T> root, int index, T value, int shift, OwnerId token)
     {
         // Tree is not a tree.
         if (shift == 0)
@@ -74,7 +74,7 @@ internal static class RrbAlgorithm
             var leaf = (LeafNode<T>)root;
 
             // Direct CloneAndSet for persistent
-            if (token == null)
+            if (token.IsNone)
                 return leaf.CloneAndSet(index & Constants.RRB_MASK, value);
 
             // Transient path
@@ -92,7 +92,7 @@ internal static class RrbAlgorithm
         var child = internalNode.Children[childIndex]!;
         var newChild = Update(child, subIndex, value, shift - Constants.RRB_BITS, token);
 
-        if (token == null)
+        if (token.IsNone)
             // Cone your way back up
             return internalNode.CloneAndSetChild(childIndex, newChild);
 
@@ -116,7 +116,7 @@ internal static class RrbAlgorithm
 
             var newItems = new T[limit];
             Array.Copy(leaf.Items, newItems, limit);
-            return new LeafNode<T>(newItems, limit, null);
+            return new LeafNode<T>(newItems, limit, OwnerId.None);
         }
 
         var internalNode = AsInternal(node);
@@ -142,7 +142,7 @@ internal static class RrbAlgorithm
             newSizeTable[childIdx] = limit;
         }
 
-        return new InternalNode<T>(newChildren, newSizeTable, newLen, null);
+        return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
     }
 
 
@@ -153,7 +153,7 @@ internal static class RrbAlgorithm
 
         // Reuse the append logic
         // We pass null for token because FlushTail is usually a persistent op (Merge)
-        return AppendLeafToTree(root, tail, ref shift, null);
+        return AppendLeafToTree(root, tail, ref shift, OwnerId.None);
     }
 
     public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShift, int rightShift,
@@ -200,7 +200,7 @@ internal static class RrbAlgorithm
                 Array.Copy(rightLeaf.Items, 0, newItems, leftLeaf.Len, rightLeaf.Len);
 
                 newShift = 0; // Still a leaf
-                return new LeafNode<T>(newItems, newItems.Length, null);
+                return new LeafNode<T>(newItems, newItems.Length, OwnerId.None);
             }
             
             // Cannot merge into one leaf. Create parent.
@@ -216,7 +216,7 @@ internal static class RrbAlgorithm
             }
             
             var newChildren = new Node<T>[] { leftNode, rightNode };
-            return new InternalNode<T>(newChildren, sizeTable, 2, null);
+            return new InternalNode<T>(newChildren, sizeTable, 2, OwnerId.None);
         }
         
         else // This is not required, but with the scope created, we can reuse left and right names.
@@ -238,7 +238,7 @@ internal static class RrbAlgorithm
 
 // Returns (LeftNode, RightNode) split at the given index.
     public static (Node<T>? Left, Node<T>? Right) Split<T>(Node<T> root, int splitIndex, int shift,
-        OwnerToken? token)
+        OwnerId token)
     {
         if (shift == 0)
         {
@@ -359,7 +359,7 @@ internal static class RrbAlgorithm
         newRight = SetSizes(newRight, shift);
 
         newShift = shift + Constants.RRB_BITS;
-        var parent = new InternalNode<T>(2, null);
+        var parent = new InternalNode<T>(2, OwnerId.None);
         parent.Children[0] = newLeft;
         parent.Children[1] = newRight;
         return SetSizes(parent, newShift);
@@ -406,7 +406,7 @@ internal static class RrbAlgorithm
                     }
                 }
 
-                newChildren[i] = new LeafNode<T>(newItems, newSize, null);
+                newChildren[i] = new LeafNode<T>(newItems, newSize, OwnerId.None);
             }
             else
             {
@@ -433,12 +433,12 @@ internal static class RrbAlgorithm
                     }
                 }
 
-                var newNode = new InternalNode<T>(newSubChildren, null, newSize, null);
+                var newNode = new InternalNode<T>(newSubChildren, null, newSize, OwnerId.None);
                 newChildren[i] = SetSizes(newNode, shift - Constants.RRB_BITS);
             }
         }
 
-        return new InternalNode<T>(newChildren, null, slen, null);
+        return new InternalNode<T>(newChildren, null, slen, OwnerId.None);
     }
 
 
@@ -474,7 +474,7 @@ internal static class RrbAlgorithm
 
         // If balanced, discard the array and pass null.
         // This enables the fast-path bit-shift indexing in RrbList.
-        return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, null);
+        return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, OwnerId.None);
     }
 
     
@@ -515,7 +515,7 @@ internal static class RrbAlgorithm
     {
         var newArr = new Node<T>?[len];
         Array.Copy(orig.Children, start, newArr, 0, len);
-        return new InternalNode<T>(newArr, null, len, null);
+        return new InternalNode<T>(newArr, null, len, OwnerId.None);
     }
 
     public static Node<T> SliceLeft<T>(Node<T> root, int toDrop, int shift)
@@ -534,7 +534,7 @@ internal static class RrbAlgorithm
             var newLen = leaf.Len - toDrop;
             var newItems = new T[newLen];
             Array.Copy(leaf.Items, toDrop, newItems, 0, newLen);
-            return new LeafNode<T>(newItems, newLen, null);
+            return new LeafNode<T>(newItems, newLen, OwnerId.None);
         }
 
         var internalNode = AsInternal(node);
@@ -588,7 +588,7 @@ internal static class RrbAlgorithm
             }
         }
 
-        return new InternalNode<T>(newChildren, newSizeTable, remainingChildren, null);
+        return new InternalNode<T>(newChildren, newSizeTable, remainingChildren, OwnerId.None);
     }
 
 
@@ -599,7 +599,7 @@ internal static class RrbAlgorithm
         ref int cnt,
         ref int tailLen,
         ref int shift,
-        OwnerToken? token)
+        OwnerId token)
     {
         //  Try to fit into the active tail buffer
         if (tailLen < Constants.RRB_BRANCHING)
@@ -608,11 +608,11 @@ internal static class RrbAlgorithm
 
             // If persistent and full-width (from previous transient owner?), ensure capacity
             // (This happens if a transient node was frozen but kept its 32-size array)
-            if (token == null && tail.Items.Length == tailLen)
+            if (token.IsNone && tail.Items.Length == tailLen)
             {
                 var newItems = new T[tailLen + 1];
                 Array.Copy(tail.Items, newItems, tailLen);
-                tail = new LeafNode<T>(newItems, tailLen, null);
+                tail = new LeafNode<T>(newItems, tailLen, OwnerId.None);
             }
 
             tail.Items[tailLen] = element;
@@ -646,7 +646,7 @@ internal static class RrbAlgorithm
 
 // Returns the updated node if the tail could be inserted/merged.
 // Returns NULL if the node is physically full and the tail could not be accepted.
-    private static Node<T>? TryPushDownTail<T>(Node<T> node, LeafNode<T> tailToInsert, int shift, OwnerToken? token)
+    private static Node<T>? TryPushDownTail<T>(Node<T> node, LeafNode<T> tailToInsert, int shift, OwnerId token)
     {
         var internalNode = AsInternal(node);
 
@@ -715,7 +715,7 @@ internal static class RrbAlgorithm
     }
 
     private static InternalNode<T> AppendChild<T>(InternalNode<T> node, Node<T> childToAdd, int shift,
-        OwnerToken? token)
+        OwnerId token)
     {
         //  CHECK FOR DENSITY VIOLATION
         // if pushing a tail into a dense tree where the last leaf is not completely full
@@ -737,7 +737,7 @@ internal static class RrbAlgorithm
         }
 
         // TRANSIENT PATH
-        if (token != null)
+        if (!token.IsNone)
         {
             var editable = node;
 
@@ -801,11 +801,11 @@ internal static class RrbAlgorithm
             newSizeTable[node.Len] = prevTotal + addedSize;
         }
 
-        return new InternalNode<T>(newChildren, newSizeTable, newLen, null);
+        return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
     }
 
 // Helper to "Upgrade" a mutable dense node to a mutable relaxed node
-    private static InternalNode<T> CreateNodeWithSizeTable<T>(InternalNode<T> node, OwnerToken? token, int shift)
+    private static InternalNode<T> CreateNodeWithSizeTable<T>(InternalNode<T> node, OwnerId token, int shift)
     {
         // Calculate sizes for existing children
         var childShift = shift - Constants.RRB_BITS;
@@ -847,9 +847,9 @@ internal static class RrbAlgorithm
     }
 
 
-    private static LeafNode<T> MergeLeaves<T>(LeafNode<T> left, LeafNode<T> right, OwnerToken? token)
+    private static LeafNode<T> MergeLeaves<T>(LeafNode<T> left, LeafNode<T> right, OwnerId token)
     {
-        if (token != null && left.Owner == token)
+        if (!token.IsNone && left.Owner == token.Id && left.Gen == token.Gen)
         {
             // Transient: Mutate Left
             // Ensure array capacity
@@ -869,10 +869,10 @@ internal static class RrbAlgorithm
         var newItems = new T[left.Len + right.Len];
         Array.Copy(left.Items, 0, newItems, 0, left.Len);
         Array.Copy(right.Items, 0, newItems, left.Len, right.Len);
-        return new LeafNode<T>(newItems, newItems.Length, null);
+        return new LeafNode<T>(newItems, newItems.Length, OwnerId.None);
     }
 
-    public static Node<T> AppendLeafToTree<T>(Node<T>? root, LeafNode<T> leafToPush, ref int shift, OwnerToken? token)
+    public static Node<T> AppendLeafToTree<T>(Node<T>? root, LeafNode<T> leafToPush, ref int shift, OwnerId token)
     {
         if (root == null)
         {
@@ -914,13 +914,13 @@ internal static class RrbAlgorithm
         // the rightmost node wasn't full. 
         if (oldRootInode.SizeTable != null || rootTotalSize != rootCapacity)
         {
-            newSizeTable = new int[token != null ? Constants.RRB_BRANCHING : 2];
+            newSizeTable = new int[!token.IsNone ? Constants.RRB_BRANCHING : 2];
             newSizeTable[0] = rootTotalSize;
             newSizeTable[1] = rootTotalSize + leafToPush.Len;
         }
 
         //Create the new Parent
-        var newChildren = new Node<T>?[token != null ? Constants.RRB_BRANCHING : 2];
+        var newChildren = new Node<T>?[!token.IsNone ? Constants.RRB_BRANCHING : 2];
         newChildren[0] = root;
         newChildren[1] = CreatePath(shift, leafToPush, token);
 
@@ -934,7 +934,7 @@ internal static class RrbAlgorithm
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Node<T> CreatePath<T>(int shift, LeafNode<T> tail, OwnerToken? token)
+    private static Node<T> CreatePath<T>(int shift, LeafNode<T> tail, OwnerId token)
     {
         if (shift == 0) return tail;
         var node = new InternalNode<T>(1, token);
@@ -943,15 +943,15 @@ internal static class RrbAlgorithm
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Node<T> CreateNewParent<T>(Node<T> left, Node<T> right, OwnerToken? token)
+    private static Node<T> CreateNewParent<T>(Node<T> left, Node<T> right, OwnerId token)
     {
         if (left.Len < Constants.RRB_BRANCHING)
         {
-            var sizeTable = new int[token != null ? Constants.RRB_BRANCHING : 2];
+            var sizeTable = new int[!token.IsNone ? Constants.RRB_BRANCHING : 2];
             sizeTable[0] = left.Len;
             sizeTable[1] = left.Len + right.Len;
 
-            var children = new Node<T>?[token != null ? Constants.RRB_BRANCHING : 2];
+            var children = new Node<T>?[!token.IsNone ? Constants.RRB_BRANCHING : 2];
             children[0] = left;
             children[1] = right;
 
@@ -1038,7 +1038,7 @@ internal static class RrbAlgorithm
 
 
     public static (Node<T>? NewNode, LeafNode<T> PromotedTail) PromoteTail<T>(Node<T> node, int shift,
-        OwnerToken? token)
+        OwnerId token)
     {
         // Base Case: We are at the leaf level. 
         // This entire node becomes the promoted tail.
@@ -1112,7 +1112,7 @@ internal static class RrbAlgorithm
             if (index < leaf.Len - 1)
                 Array.Copy(leaf.Items, index + 1, newItems, index, leaf.Len - index - 1);
 
-            return new LeafNode<T>(newItems, leaf.Len - 1, null);
+            return new LeafNode<T>(newItems, leaf.Len - 1, OwnerId.None);
         }
 
         // Internal Level: Find child and recurse
@@ -1185,7 +1185,7 @@ internal static class RrbAlgorithm
                 }
             }
 
-            return new InternalNode<T>(newChildren, newSizeTable, newLen, null);
+            return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
         }
         // Second best case: The child exists (just modified)
         else
@@ -1246,7 +1246,7 @@ internal static class RrbAlgorithm
                 }
             }
 
-            return new InternalNode<T>(newChildren, newSizeTable, newLen, null);
+            return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
         }
     }
 
@@ -1264,7 +1264,7 @@ internal static class RrbAlgorithm
     }
 
 
-    public static InsertResult<T> InsertRecursive<T>(Node<T> node, int index, T item, int shift, OwnerToken? token)
+    public static InsertResult<T> InsertRecursive<T>(Node<T> node, int index, T item, int shift, OwnerId token)
     {
         // Leaf level
         if (shift == 0)
@@ -1278,7 +1278,7 @@ internal static class RrbAlgorithm
                 if (index > 0) Array.Copy(leaf.Items, 0, newItems, 0, index);
                 newItems[index] = item;
                 if (index < leaf.Len) Array.Copy(leaf.Items, index, newItems, index + 1, leaf.Len - index);
-                return new InsertResult<T>(new LeafNode<T>(newItems, leaf.Len + 1, null));
+                return new InsertResult<T>(new LeafNode<T>(newItems, leaf.Len + 1, OwnerId.None));
             }
 
             // Leaf Split
@@ -1301,8 +1301,8 @@ internal static class RrbAlgorithm
             Array.Copy(totalItems, 0, leftArr, 0, splitPoint);
             Array.Copy(totalItems, splitPoint, rightArr, 0, rightLen);
 
-            return new InsertResult<T>(new LeafNode<T>(leftArr, splitPoint, null),
-                new LeafNode<T>(rightArr, rightLen, null));
+            return new InsertResult<T>(new LeafNode<T>(leftArr, splitPoint, OwnerId.None),
+                new LeafNode<T>(rightArr, rightLen, OwnerId.None));
         }
 
         // In the tree
@@ -1372,7 +1372,7 @@ internal static class RrbAlgorithm
                 }
             }
             
-            return new InsertResult<T>(new InternalNode<T>(newChildren, newSizeTable, internalNode.Len, null));
+            return new InsertResult<T>(new InternalNode<T>(newChildren, newSizeTable, internalNode.Len, OwnerId.None));
         }
 
         // Sad case: Child owerflow
@@ -1441,7 +1441,7 @@ internal static class RrbAlgorithm
                 }
             }
 
-            return new InsertResult<T>(new InternalNode<T>(newChildren, newSizeTable, newLen, null));
+            return new InsertResult<T>(new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None));
         }
 
         return SplitInternalNode(internalNode, childIndex, result.NewNode, result.Overflow, shift);
@@ -1503,8 +1503,8 @@ internal static class RrbAlgorithm
             rightTable[i] = cumulative;
         }
 
-        var newLeft = new InternalNode<T>(leftChildren, leftTable, SplitPoint, null);
-        var newRight = new InternalNode<T>(rightChildren, rightTable, RightLen, null);
+        var newLeft = new InternalNode<T>(leftChildren, leftTable, SplitPoint, OwnerId.None);
+        var newRight = new InternalNode<T>(rightChildren, rightTable, RightLen, OwnerId.None);
 
         return new InsertResult<T>(newLeft, newRight);
     }

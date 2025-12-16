@@ -38,10 +38,35 @@ internal static class Constants
     public const int FAT_TAIL_SIZE = 1024;
 }
 
-// Replaces 'RRBThread owner' and 'GUID_DECLARATION'
-// If a node holds this token, it is mutable if the RrbList token is the same. 
-// This used to contain ThreadId, but that makes no sense in an async world where we can suddenly end up
-// on a different thread.
-internal class OwnerToken
+public readonly struct OwnerId : IEquatable<OwnerId>
 {
+    private static long _globalCounter = 1; // Start at 1, 0 is reserved for "Immutable/None"
+
+    public readonly uint Id;
+    public readonly ushort Gen;
+
+    public OwnerId(uint id, ushort gen)
+    {
+        Id = id;
+        Gen = gen;
+    }
+
+    // Generates a new unique 48-bit ID
+    public static OwnerId Next()
+    {
+        var val = Interlocked.Increment(ref _globalCounter);
+        return new OwnerId((uint)val, (ushort)(val >> 32));
+    }
+
+    // 0 ID implies the node is Immutable/Persistent
+    public bool IsNone => Id == 0 && Gen == 0;
+    
+    public static readonly OwnerId None = new(0, 0);
+
+    // Fast equality check (just two integer comparisons)
+    public bool Equals(OwnerId other) => Id == other.Id && Gen == other.Gen;
+    public static bool operator ==(OwnerId a, OwnerId b) => a.Equals(b);
+    public static bool operator !=(OwnerId a, OwnerId b) => !a.Equals(b);
+    public override bool Equals(object? obj) => obj is OwnerId other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(Id, Gen);
 }

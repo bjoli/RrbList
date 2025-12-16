@@ -243,7 +243,7 @@ public sealed partial class RrbList<T> where T : notnull
         var newTailLen = TailLen;
         var newShift = Shift;
 
-        RrbAlgorithm.Push(ref newRoot, ref newTail, item, ref newCnt, ref newTailLen, ref newShift, null);
+        RrbAlgorithm.Push(ref newRoot, ref newTail, item, ref newCnt, ref newTailLen, ref newShift, OwnerId.None);
         return new RrbList<T>(newRoot, newTail, newCnt, newShift, newTailLen);
     }
 
@@ -266,7 +266,7 @@ public sealed partial class RrbList<T> where T : notnull
             return new RrbList<T>(Root, newTail, Count, Shift, TailLen);
         }
 
-        var newRoot = RrbAlgorithm.Update(Root!, index, value, Shift, null);
+        var newRoot = RrbAlgorithm.Update(Root!, index, value, Shift, OwnerId.None);
         return new RrbList<T>(newRoot, Tail, Count, Shift, TailLen);
     }
 
@@ -329,7 +329,7 @@ public sealed partial class RrbList<T> where T : notnull
 
         // The tree is not null, but tail is empty. 
         // We must pop the rightmost leaf from Root.
-        var (newRoot, newTail) = RrbAlgorithm.PromoteTail(Root, Shift, null);
+        var (newRoot, newTail) = RrbAlgorithm.PromoteTail(Root, Shift, OwnerId.None);
 
         var newShift = Shift;
 
@@ -378,7 +378,7 @@ public sealed partial class RrbList<T> where T : notnull
             var itemsFromTail = newEnd - treeSize;
             var newTailItems = new T[itemsFromTail];
             Array.Copy(Tail.Items, 0, newTailItems, 0, itemsFromTail);
-            resultTail = new LeafNode<T>(newTailItems, itemsFromTail, null);
+            resultTail = new LeafNode<T>(newTailItems, itemsFromTail, OwnerId.None);
             resultRoot = Root;
         }
         else
@@ -397,7 +397,7 @@ public sealed partial class RrbList<T> where T : notnull
                     var offsetInTail = start - treeSize;
                     var tailSlice = new T[count];
                     Array.Copy(Tail.Items, offsetInTail, tailSlice, 0, count);
-                    return new RrbList<T>(null, new LeafNode<T>(tailSlice, count, null), count, 0, count);
+                    return new RrbList<T>(null, new LeafNode<T>(tailSlice, count, OwnerId.None), count, 0, count);
                 }
 
                 resultRoot = RrbAlgorithm.SliceLeft(resultRoot, start, resultShift);
@@ -406,7 +406,7 @@ public sealed partial class RrbList<T> where T : notnull
             {
                 var tailSlice = new T[count];
                 Array.Copy(resultTail.Items, start, tailSlice, 0, count);
-                resultTail = new LeafNode<T>(tailSlice, count, null);
+                resultTail = new LeafNode<T>(tailSlice, count, OwnerId.None);
             }
         }
 
@@ -435,7 +435,7 @@ public sealed partial class RrbList<T> where T : notnull
                 Array.Copy(Tail.Items, 0, newItems, 0, TailLen);
                 Array.Copy(other.Tail.Items, 0, newItems, TailLen, other.TailLen);
 
-                var newTail = new LeafNode<T>(newItems, newItems.Length, null);
+                var newTail = new LeafNode<T>(newItems, newItems.Length, OwnerId.None);
                 return new RrbList<T>(Root, newTail, Count + other.Count, Shift, newTail.Len);
             }
 
@@ -445,16 +445,16 @@ public sealed partial class RrbList<T> where T : notnull
             var newLeafItems = new T[Constants.RRB_BRANCHING];
             Array.Copy(Tail.Items, 0, newLeafItems, 0, TailLen);
             Array.Copy(other.Tail.Items, 0, newLeafItems, TailLen, spaceInThis);
-            var newLeaf = new LeafNode<T>(newLeafItems, Constants.RRB_BRANCHING, null);
+            var newLeaf = new LeafNode<T>(newLeafItems, Constants.RRB_BRANCHING, OwnerId.None);
 
             var newTailItems = new T[overflow];
             Array.Copy(other.Tail.Items, spaceInThis, newTailItems, 0, overflow);
-            var newActiveTail = new LeafNode<T>(newTailItems, overflow, null);
+            var newActiveTail = new LeafNode<T>(newTailItems, overflow, OwnerId.None);
 
             var treeCountAfterPush = Count - TailLen + Constants.RRB_BRANCHING;
 
             var newShift = Shift;
-            var newRoot = RrbAlgorithm.AppendLeafToTree(Root, newLeaf, ref newShift, null);
+            var newRoot = RrbAlgorithm.AppendLeafToTree(Root, newLeaf, ref newShift, OwnerId.None);
 
             return new RrbList<T>(newRoot, newActiveTail, Count + other.Count, newShift, overflow);
         }
@@ -507,7 +507,7 @@ public sealed partial class RrbList<T> where T : notnull
 
         // Sad case: Split is inside the Tree
         // 1. Split the Tree
-        var (treeL, treeR) = RrbAlgorithm.Split(Root!, index, Shift, null);
+        var (treeL, treeR) = RrbAlgorithm.Split(Root!, index, Shift, OwnerId.None);
 
         // Left List gets treeL + empty tail
         // Simplest valid state: Left has empty tail.
@@ -523,12 +523,12 @@ public sealed partial class RrbList<T> where T : notnull
     {
         var lArr = new T[idx];
         Array.Copy(tail.Items, 0, lArr, 0, idx);
-        var lNode = new LeafNode<T>(lArr, idx, null);
+        var lNode = new LeafNode<T>(lArr, idx, OwnerId.None);
 
         var rLen = tail.Len - idx;
         var rArr = new T[rLen];
         Array.Copy(tail.Items, idx, rArr, 0, rLen);
-        var rNode = new LeafNode<T>(rArr, rLen, null);
+        var rNode = new LeafNode<T>(rArr, rLen, OwnerId.None);
 
         return (lNode, rNode);
     }
@@ -567,7 +567,7 @@ public sealed partial class RrbList<T> where T : notnull
                 if (idxInTail < TailLen)
                     Array.Copy(Tail.Items, idxInTail, newTailItems, idxInTail + 1, TailLen - idxInTail);
 
-                return new RrbList<T>(Root, new LeafNode<T>(newTailItems, TailLen + 1, null), Count + 1, Shift,
+                return new RrbList<T>(Root, new LeafNode<T>(newTailItems, TailLen + 1, OwnerId.None), Count + 1, Shift,
                     TailLen + 1);
             }
             // Or: Tail is Full (Split & Promote)
@@ -587,17 +587,17 @@ public sealed partial class RrbList<T> where T : notnull
                 // Create the Full Node to push into tree
                 var promotedItems = new T[Constants.RRB_BRANCHING];
                 Array.Copy(tempItems, 0, promotedItems, 0, Constants.RRB_BRANCHING);
-                var promotedLeaf = new LeafNode<T>(promotedItems, Constants.RRB_BRANCHING, null);
+                var promotedLeaf = new LeafNode<T>(promotedItems, Constants.RRB_BRANCHING, OwnerId.None);
 
                 // Create the New Tail (with the 1 remaining item)
                 var newTailItems = new T[1];
                 newTailItems[0] = tempItems[Constants.RRB_BRANCHING];
-                var newTail = new LeafNode<T>(newTailItems, 1, null);
+                var newTail = new LeafNode<T>(newTailItems, 1, OwnerId.None);
 
                 // Update Tree
                 int newShift = Shift;
                 // Reuse the logic from Add/Push to grow the tree
-                Node<T> newRoot = RrbAlgorithm.AppendLeafToTree(Root, promotedLeaf, ref newShift, null);
+                Node<T> newRoot = RrbAlgorithm.AppendLeafToTree(Root, promotedLeaf, ref newShift, OwnerId.None);
 
                 return new RrbList<T>(newRoot, newTail, Count + 1, newShift, 1);
             }
@@ -605,7 +605,7 @@ public sealed partial class RrbList<T> where T : notnull
 
         // Insert into Tree (Recursive)
         // InsertRecursive only worries about the tree epart. 
-        var result = RrbAlgorithm.InsertRecursive(Root!, index, item, Shift, null);
+        var result = RrbAlgorithm.InsertRecursive(Root!, index, item, Shift, OwnerId.None);
 
         Node<T> treeRoot = result.NewNode;
         int treeShift = Shift;
@@ -621,7 +621,7 @@ public sealed partial class RrbList<T> where T : notnull
             sizes[0] = RrbAlgorithm.GetTotalSize(result.NewNode, Shift);
             sizes[1] = sizes[0] + RrbAlgorithm.GetTotalSize(result.Overflow, Shift);
 
-            treeRoot = new InternalNode<T>(children, sizes, 2, null);
+            treeRoot = new InternalNode<T>(children, sizes, 2, OwnerId.None);
         }
 
         return new RrbList<T>(treeRoot, Tail, Count + 1, treeShift, TailLen);
@@ -652,7 +652,7 @@ public sealed partial class RrbList<T> where T : notnull
             if (indexInTail < TailLen - 1)
                 Array.Copy(Tail.Items, indexInTail + 1, newTailItems, indexInTail, TailLen - indexInTail - 1);
             
-            var newTail = new LeafNode<T>(newTailItems, newTailItems.Length, null);
+            var newTail = new LeafNode<T>(newTailItems, newTailItems.Length, OwnerId.None);
             return new RrbList<T>(Root, newTail, Count - 1, Shift, newTail.Len);
         }
 
@@ -799,7 +799,7 @@ public sealed partial class RrbList<T> where T : notnull
             // TailLen for value types. 
             var newTailItems = new T[TailLen - 1];
             Array.Copy(Tail.Items, 0, newTailItems, 0, TailLen - 1);
-            var newTail = new LeafNode<T>(newTailItems, TailLen - 1, null);
+            var newTail = new LeafNode<T>(newTailItems, TailLen - 1, OwnerId.None);
 
             return new RrbList<T>(Root, newTail, Count - 1, Shift, TailLen - 1);
         }

@@ -1,7 +1,7 @@
 namespace Collections;
 
 [Flags]
-internal enum NodeFlags : byte
+public enum NodeFlags : byte
 {
     // Bits 3-8 are currently not in use.
     None = 0,
