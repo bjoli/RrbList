@@ -16,7 +16,8 @@ namespace Collections;
 
 internal abstract class Node<T>
 {
-    public int Len; // Actual number of elements used
+    public byte Len; // Actual number of elements used
+    public NodeFlags Flags;
     public OwnerToken? Owner; // If null, node is immutable
 }
 
@@ -27,8 +28,9 @@ internal sealed class LeafNode<T> : Node<T>
 
     public LeafNode(int size, OwnerToken? owner)
     {
-        Len = size;
+        Len = (byte) size;
         Owner = owner;
+        Flags = NodeFlags.IsLeaf; 
         // If we have an owner (Transient), allocate full capacity (32) for cheap appends.
         // If immutable (null), allocate exact fit.
         Items = new T[owner != null ? Constants.RRB_BRANCHING : size];
@@ -37,8 +39,9 @@ internal sealed class LeafNode<T> : Node<T>
     public LeafNode(T[] items, int len, OwnerToken? owner)
     {
         Items = items;
-        Len = len;
+        Len = (byte)len;
         Owner = owner;
+        Flags = NodeFlags.IsLeaf;
     }
 
     // Corresponds to 'ensure_leaf_editable' in rrb_transients.h
@@ -97,7 +100,7 @@ internal sealed class InternalNode<T> : Node<T>
 
     public InternalNode(int size, OwnerToken? owner)
     {
-        Len = size;
+        Len = (byte)size;
         Owner = owner;
         Children = new Node<T>?[owner != null ? Constants.RRB_BRANCHING : size];
     }
@@ -106,8 +109,9 @@ internal sealed class InternalNode<T> : Node<T>
     {
         Children = children;
         SizeTable = sizeTable;
-        Len = len;
+        Len = (byte)len;
         Owner = owner;
+        if (sizeTable != null) Flags |= NodeFlags.IsRelaxed;
     }
 
     // 'ensure_internal_editable' in c-rrb in rrb_transients.h

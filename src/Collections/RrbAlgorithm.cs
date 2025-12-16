@@ -469,7 +469,7 @@ internal static class RrbAlgorithm
 
             // If a child is Relaxed (has a SizeTable), THIS node must also be Relaxed (have a SizeTable).
             // Because we need to subtract offsets before entering the relaxed child.
-            if (child is InternalNode<T> internalChild && internalChild.SizeTable != null) isBalanced = false;
+            if ((child.Flags & NodeFlags.IsRelaxed) != 0) isBalanced = false;
         }
 
         // If balanced, discard the array and pass null.
@@ -834,8 +834,11 @@ internal static class RrbAlgorithm
     internal static int GetTotalSize<T>(Node<T> node, int shift)
     {
         if (shift == 0) return node.Len;
-        if (node is InternalNode<T> inode && inode.SizeTable != null)
-            return inode.SizeTable[inode.Len - 1];
+        if ((node.Flags & NodeFlags.IsRelaxed) != 0)
+        {
+            // Now we know it's safe to cast and read
+            return Unsafe.As<InternalNode<T>>(node).SizeTable![node.Len - 1];
+        }
 
         // It's a dense node.
         // However, if we are calling this on a child that forced relaxation, 
@@ -971,14 +974,22 @@ internal static class RrbAlgorithm
         int shift)
     {
         // Dense / Balanced Path (No SizeTable)
-        if (node.SizeTable == null)
+        if ((node.Flags & NodeFlags.IsRelaxed) == 0)
         {
             int childIndex = (index >> shift) & Constants.RRB_MASK;
             int childStart = childIndex << shift;
             return (childIndex, index - childStart);
         }
 
-        // Relaxed Path (SizeTable Search)
+        return GetRelaxedIndexAvx(node, index, shift);
+    }
+    
+    
+    // The relaxed continuation of above
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static unsafe (int childIndex, int relativeIndex) GetRelaxedIndexAvx<T>(InternalNode<T> node, int index,
+        int shift)
+    {
         int len = node.Len;
         int i = 0;
 
@@ -1029,6 +1040,8 @@ internal static class RrbAlgorithm
         int prev = i > 0 ? table[i - 1] : 0;
         return (i, index - prev);
     }
+    
+    
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static InternalNode<T> AsInternal<T>(Node<T> node) => Unsafe.As<InternalNode<T>>(node);
