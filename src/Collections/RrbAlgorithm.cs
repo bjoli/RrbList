@@ -993,6 +993,40 @@ internal static class RrbAlgorithm
         int len = node.Len;
         int i = 0;
 
+        // I could see no benefit of this
+        // if (Avx512F.IsSupported && len >= 16)
+        // {
+        //     var vIndex = Vector512.Create(index);
+        //
+        //     fixed (int* tablePtr = node.SizeTable)
+        //     {
+        //         // Stride is 16 integers (64 bytes)
+        //         for (; i <= len - 16; i += 16)
+        //         {
+        //             var vTable = Avx512F.LoadVector512(tablePtr + i);
+        //
+        //             // 1. Compare (Returns Vector512<int>)
+        //             var vResult = Vector512.GreaterThan(vTable, vIndex);
+        //
+        //             // 2. Extract Mask (The missing step!)
+        //             // This grabs the high bit of every integer and packs them into a uint.
+        //             // Since we have 16 ints, we get 16 bits.
+        //             uint mask = (uint)Vector512.ExtractMostSignificantBits(vResult);
+        //
+        //             if (mask != 0)
+        //             {
+        //                 // Find first set bit (first child that is larger than index)
+        //                 int offset = BitOperations.TrailingZeroCount(mask);
+        //                 int matchIndex = i + offset;
+        //         
+        //                 int prevCount = matchIndex > 0 ? tablePtr[matchIndex - 1] : 0;
+        //
+        //                 return (matchIndex, index - prevCount);
+        //             }
+        //         }
+        //     }
+        // }
+        
         // Use AVX2 if supported and profitable (at least one vector worth of data)
         // This is at no cost to the old kind of indexing.
         if (Avx2.IsSupported && len >= 8)

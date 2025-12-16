@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Runtime.CompilerServices;
+
 namespace Collections;
 
 public static class misc
@@ -16,3 +19,28 @@ public static class misc
         return list;
     }
 }
+
+// internal readonly struct ArrayPoolScope<TItem> : IDisposable
+//
+// {
+//
+//     private readonly TItem[] _array;
+//
+//
+//     public ArrayPoolScope(int minLength)
+//     {
+//         _array = ArrayPool<TItem>.Shared.Rent(minLength);
+//     }
+//
+//
+//     public void Dispose()
+//     { 
+//         bool needsClear = RuntimeHelpers.IsReferenceOrContainsReferences<TItem>();
+//         ArrayPool<TItem>.Shared.Return(_array, clearArray: needsClear);
+//     }
+//
+// // Allow implicit conversion to Span for easy usage
+//
+//     public static implicit operator Span<TItem>(ArrayPoolScope<TItem> scope) => scope.Span;
+//
+// } 
