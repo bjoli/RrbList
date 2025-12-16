@@ -13,6 +13,7 @@
 // any clause in the MPL to make you have to reshare, this should probably be solved somehow.
 
 namespace Collections;
+using System.Runtime.InteropServices;
 
 internal static class Constants
 {
@@ -38,12 +39,16 @@ internal static class Constants
     public const int FAT_TAIL_SIZE = 1024;
 }
 
-public readonly struct OwnerId : IEquatable<OwnerId>
-{
-    private static long _globalCounter = 1; // Start at 1, 0 is reserved for "Immutable/None"
 
-    public readonly uint Id;
-    public readonly ushort Gen;
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+internal readonly struct OwnerId : IEquatable<OwnerId>
+{
+    // Global monotonic counter
+    private static long _globalCounter = 1;
+
+    public readonly uint Id;    // 4 bytes
+    public readonly ushort Gen; // 2 bytes
+    // Total Size: 6 Bytes
 
     public OwnerId(uint id, ushort gen)
     {
@@ -51,22 +56,28 @@ public readonly struct OwnerId : IEquatable<OwnerId>
         Gen = gen;
     }
 
-    // Generates a new unique 48-bit ID
     public static OwnerId Next()
     {
         var val = Interlocked.Increment(ref _globalCounter);
         return new OwnerId((uint)val, (ushort)(val >> 32));
     }
 
-    // 0 ID implies the node is Immutable/Persistent
-    public bool IsNone => Id == 0 && Gen == 0;
-    
     public static readonly OwnerId None = new(0, 0);
 
-    // Fast equality check (just two integer comparisons)
+    public bool IsNone => Id == 0 && Gen == 0;
+
+    // Returns true if 'this' ID was generated before 'other' ID.
+    // This allows us to treat older nodes as immutable without touching them.
+    public bool IsOlderThan(OwnerId other)
+    {
+        if (Gen < other.Gen) return true;
+        if (Gen > other.Gen) return false;
+        return Id < other.Id;
+    }
+
     public bool Equals(OwnerId other) => Id == other.Id && Gen == other.Gen;
-    public static bool operator ==(OwnerId a, OwnerId b) => a.Equals(b);
-    public static bool operator !=(OwnerId a, OwnerId b) => !a.Equals(b);
     public override bool Equals(object? obj) => obj is OwnerId other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(Id, Gen);
+    public static bool operator ==(OwnerId left, OwnerId right) => left.Equals(right);
+    public static bool operator !=(OwnerId left, OwnerId right) => !left.Equals(right);
 }

@@ -9,34 +9,37 @@
  * Copyright (c) 2013-2014 Jean Niklas L'orange, licensed under the MIT License.
  */
 
-
+namespace Collections;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Collections;
 
-[StructLayout(LayoutKind.Sequential, Pack = 1)]
-public abstract class Node<T>
+// Layout: 
+// [Header: 16B] + [Ref: 8B] + [Owner: 6B] + [Len: 1B] + [Flags: 1B] = 32 Bytes
+[StructLayout(LayoutKind.Sequential)]
+internal abstract class Node<T>
 {
-    public uint Owner;
-    public ushort Gen;
-    public byte Len; // Actual number of elements used
-    public NodeFlags Flags; // If null, node is immutable
+    // Note: The specific "Children" or "Items" reference is defined in subclasses,
+    // but the CLR generally packs references first. 
+    // The fields below consume exactly 8 bytes.
+    
+    public OwnerId Owner;   // 6 bytes
+    public byte Len;        // 1 byte
+    public NodeFlags Flags; // 1 byte
 }
-[StructLayout(LayoutKind.Sequential, Size = 32, Pack = 1)]
-public sealed class LeafNode<T> : Node<T>
+
+[StructLayout(LayoutKind.Sequential)]
+internal sealed class LeafNode<T> : Node<T>
 {
-    public static readonly LeafNode<T> Empty = new(0,   OwnerId.None);
-    public T[] Items;
+    public static readonly LeafNode<T> Empty = new(0, OwnerId.None);
+    public T[] Items; // Reference (8 bytes)
 
     public LeafNode(int size, OwnerId owner)
     {
         Len = (byte)size;
-        Owner = owner.Id;
-        Gen = owner.Gen;
+        Owner = owner;
         Flags = NodeFlags.IsLeaf;
-        // If we have an owner (Transient), allocate full capacity (32) for cheap appends.
-        // If immutable (null), allocate exact fit.
+        // If owner is valid (Transient), allocate full capacity for cheap appends.
         Items = new T[!owner.IsNone ? Constants.RRB_BRANCHING : size];
     }
 
@@ -44,67 +47,73 @@ public sealed class LeafNode<T> : Node<T>
     {
         Items = items;
         Len = (byte)len;
-        Owner = owner.Id;
-        Gen = owner.Gen;
+        Owner = owner;
         Flags = NodeFlags.IsLeaf;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public LeafNode<T> EnsureEditable(OwnerId target)
+    public LeafNode<T> EnsureEditable(OwnerId callerId)
     {
-        // 1. Check if we already own it (Fast integer compare)
-        if (!target.IsNone && Owner == target.Id && Gen == target.Gen)
-            return this;
+        // If we own it, we can mutate it in place.
+        if (Owner == callerId) return this;
 
-        // 2. Clone logic
-        var newCap = !target.IsNone ? Constants.RRB_BRANCHING : Len;
+        // Clone
+        var newCap = !callerId.IsNone ? Constants.RRB_BRANCHING : Len;
         var newItems = new T[newCap];
         Array.Copy(Items, 0, newItems, 0, Len);
 
-        return new LeafNode<T>(newItems, Len, target);
+        return new LeafNode<T>(newItems, Len, callerId);
     }
 
-    public LeafNode<T> Freeze()
+    public LeafNode<T> Freeze(OwnerId callerId)
     {
-        if (Items.Length == Len)
+        // 1. Already Immutable (None) OR Effectively Immutable (Older generation)
+        if (Owner.IsNone || Owner.IsOlderThan(callerId))
         {
-            Owner = 0; // Clear ID
-            Gen = 0;
-            Flags |= NodeFlags.IsFrozen; // Optional: mark as frozen
-            return this;
+            // If the size is correct, we don't need to do anything.
+            if (Items.Length == Len) return this;
         }
 
+        // 2. In-Place Freeze (It's OUR node)
+        if (Owner == callerId)
+        {
+            if (Items.Length == Len)
+            {
+                // Zero allocation freeze
+                Owner = OwnerId.None;
+                Flags |= NodeFlags.IsFrozen;
+                return this;
+            }
+        }
+
+        // 3. Must Copy (Shrinking required or alien owner)
         var newItems = new T[Len];
         Array.Copy(Items, newItems, Len);
         return new LeafNode<T>(newItems, Len, OwnerId.None);
     }
-    
-    
-    // Fast clone for persistent updates
-    // Returns a new node with one item changed
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public LeafNode<T> CloneAndSet(int index, T value)
     {
         var newItems = new T[Len];
         Array.Copy(Items, newItems, Len);
         newItems[index] = value;
-        // Returns immutable node (Owner 0)
-        return new LeafNode<T>(newItems, Len, OwnerId.None); 
+        return new LeafNode<T>(newItems, Len, OwnerId.None);
     }
 }
-[StructLayout(LayoutKind.Sequential, Size = 42, Pack = 1)]
-public sealed class InternalNode<T> : Node<T>
+
+[StructLayout(LayoutKind.Sequential)]
+internal sealed class InternalNode<T> : Node<T>
 {
-    public readonly Node<T>?[] Children;
-    public readonly int[]? SizeTable; 
+    public readonly Node<T>?[] Children; // Reference (8 bytes)
+    public readonly int[]? SizeTable;    // Reference (8 bytes) -> Pushes this node to 40 bytes if present
 
     public InternalNode(int size, OwnerId owner)
     {
         Len = (byte)size;
-        Owner = owner.Id;
-        Gen = owner.Gen;
+        Owner = owner;
+        // Flags defaults to 0 (Internal, Dense)
         Children = new Node<T>?[!owner.IsNone ? Constants.RRB_BRANCHING : size];
-        // Flags defaulted to None (0) which is correct for Internal
     }
 
     public InternalNode(Node<T>?[] children, int[]? sizeTable, int len, OwnerId owner)
@@ -112,19 +121,17 @@ public sealed class InternalNode<T> : Node<T>
         Children = children;
         SizeTable = sizeTable;
         Len = (byte)len;
-        Owner = owner.Id;
-        Gen = owner.Gen;
+        Owner = owner;
         
-        if (sizeTable != null) Flags |= NodeFlags.IsRelaxed; // Set Relaxed flag
+        if (sizeTable != null) Flags |= NodeFlags.IsRelaxed;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public InternalNode<T> EnsureEditable(OwnerId target)
+    public InternalNode<T> EnsureEditable(OwnerId callerId)
     {
-        if (!target.IsNone && Owner == target.Id && Gen == target.Gen)
-            return this;
+        if (Owner == callerId) return this;
 
-        var newCap = !target.IsNone ? Constants.RRB_BRANCHING : Len;
+        var newCap = !callerId.IsNone ? Constants.RRB_BRANCHING : Len;
         var newChildren = new Node<T>?[newCap];
         Array.Copy(Children, 0, newChildren, 0, Len);
 
@@ -135,30 +142,30 @@ public sealed class InternalNode<T> : Node<T>
             Array.Copy(SizeTable, 0, newSizeTable, 0, Len);
         }
 
-        return new InternalNode<T>(newChildren, newSizeTable, Len, target);
+        return new InternalNode<T>(newChildren, newSizeTable, Len, callerId);
     }
 
-    public InternalNode<T> Freeze()
+    public InternalNode<T> Freeze(OwnerId callerId)
     {
-        // Already immutable and packed.
-        if (Owner == 0 && Gen == 0 && Children.Length == Len) 
-            return this;
-
-        // In-Place Freeze
-        // The node fits perfectly, but it currently has an Owner.
-        // Strip the owner. 
-        if (Children.Length == Len)
+        // 1. Effectively Immutable check
+        // If the node belongs to an older build, we treat it as frozen.
+        if (Owner.IsNone || Owner.IsOlderThan(callerId))
         {
-            Owner = 0;
-            Gen = 0;
-            Flags |= NodeFlags.IsFrozen; // If you are using flags
-            return this;
+            if (Children.Length == Len) return this;
         }
 
-        // Shrink to Fit (Allocation required)
-        // The arrays are too big (example: size 32 but only holding 5 items).
-        // Shrinkylicious
-    
+        // 2. In-Place Freeze
+        if (Owner == callerId)
+        {
+            if (Children.Length == Len)
+            {
+                Owner = OwnerId.None;
+                Flags |= NodeFlags.IsFrozen;
+                return this;
+            }
+        }
+
+        // 3. Copy/Shrink
         var newChildren = new Node<T>?[Len];
         Array.Copy(Children, newChildren, Len);
 
@@ -169,20 +176,15 @@ public sealed class InternalNode<T> : Node<T>
             Array.Copy(SizeTable, newTable, Len);
         }
 
-        // Return new immutable node (Owner 0, Gen 0)
-        // Note: We preserve the IsRelaxed flag if newTable exists
         return new InternalNode<T>(newChildren, newTable, Len, OwnerId.None);
     }
 
-    // Clone and replace a single child (Path Copying)
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public InternalNode<T> CloneAndSetChild(int childIdx, Node<T> newChild)
     {
         var newChildren = new Node<T>?[Len];
         Array.Copy(Children, newChildren, Len);
         newChildren[childIdx] = newChild;
-
-        // We share the SizeTable reference because it hasn't changed
         return new InternalNode<T>(newChildren, SizeTable, Len, OwnerId.None);
     }
 }

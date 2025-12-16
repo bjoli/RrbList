@@ -849,7 +849,7 @@ internal static class RrbAlgorithm
 
     private static LeafNode<T> MergeLeaves<T>(LeafNode<T> left, LeafNode<T> right, OwnerId token)
     {
-        if (!token.IsNone && left.Owner == token.Id && left.Gen == token.Gen)
+        if (!token.IsNone && left.Owner == token)
         {
             // Transient: Mutate Left
             // Ensure array capacity

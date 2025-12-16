@@ -211,8 +211,8 @@ public class RrbBuilder<T>
 
         // 3. Freeze Root
         var frozenRoot = _root;
-        if (frozenRoot is InternalNode<T> inode) frozenRoot = inode.Freeze();
-        else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze();
+        if (frozenRoot is InternalNode<T> inode) frozenRoot = inode.Freeze(_token);
+        else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze(_token);
 
         _token = OwnerId.Next();
 
