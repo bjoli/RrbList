@@ -40,7 +40,7 @@ internal static class Constants
 }
 
 
-[StructLayout(LayoutKind.Sequential, Pack = 1)]
+[StructLayout(LayoutKind.Auto, Pack = 1)]
 internal readonly struct OwnerId : IEquatable<OwnerId>
 {
     // Global monotonic counter

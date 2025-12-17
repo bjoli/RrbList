@@ -17,7 +17,7 @@ using System.Runtime.InteropServices;
 
 // Layout: 
 // [Header: 16B] + [Ref: 8B] + [Owner: 6B] + [Len: 1B] + [Flags: 1B] = 32 Bytes
-[StructLayout(LayoutKind.Sequential)]
+[StructLayout(LayoutKind.Auto, Pack=1)]
 internal abstract class Node<T>
 {
     // Note: The specific "Children" or "Items" reference is defined in subclasses,
@@ -29,7 +29,7 @@ internal abstract class Node<T>
     public NodeFlags Flags; // 1 byte
 }
 
-[StructLayout(LayoutKind.Sequential, Pack=1)]
+[StructLayout(LayoutKind.Auto, Pack=1)]
 internal sealed class LeafNode<T> : Node<T>
 {
     public static readonly LeafNode<T> Empty = new(0, OwnerId.None);
@@ -107,7 +107,7 @@ internal sealed class LeafNode<T> : Node<T>
     }
 }
 
-[StructLayout(LayoutKind.Sequential, Pack=1)]
+[StructLayout(LayoutKind.Auto, Pack=1)]
 internal sealed class InternalNode<T> : Node<T>
 {
     public readonly Node<T>?[] Children; // Reference (8 bytes)
