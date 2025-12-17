@@ -9,6 +9,9 @@
  * Copyright (c) 2013-2014 Jean Niklas L'orange, licensed under the MIT License.
  */
 
+
+using System.Runtime.CompilerServices;
+
 namespace Collections;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -28,13 +31,12 @@ internal abstract class Node<T>
     public NodeFlags Flags; // 1 byte
 }
 
-[StructLayout(LayoutKind.Sequential)]
 internal sealed class LeafNode<T> : Node<T>
 {
-    public static readonly LeafNode<T> Empty = new(0, OwnerId.None);
-    public T[] Items; // Reference (8 bytes)
+    public static readonly LeafNode<T> Empty = new(0, null);
+    public T[] Items;
 
-    public LeafNode(int size, OwnerId owner)
+    public LeafNode(int size, OwnerToken? owner)
     {
         Len = (byte)size;
         Owner = owner;
@@ -51,6 +53,7 @@ internal sealed class LeafNode<T> : Node<T>
         Flags = NodeFlags.IsLeaf;
     }
 
+    // Corresponds to 'ensure_leaf_editable' in rrb_transients.h
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public LeafNode<T> EnsureEditable(OwnerId callerId)
     {
@@ -60,6 +63,9 @@ internal sealed class LeafNode<T> : Node<T>
         // Clone
         var newCap = !callerId.IsNone ? Constants.RRB_BRANCHING : Len;
         var newItems = new T[newCap];
+
+        // If growing (e.g. persistent node becoming transient), we copy what we have.
+        // If shrinking (e.g. transient node becoming persistent), we copy what fits.
         Array.Copy(Items, 0, newItems, 0, Len);
 
         return new LeafNode<T>(newItems, Len, callerId);
@@ -126,6 +132,7 @@ internal sealed class InternalNode<T> : Node<T>
         if (sizeTable != null) Flags |= NodeFlags.IsRelaxed;
     }
 
+    // 'ensure_internal_editable' in c-rrb in rrb_transients.h
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public InternalNode<T> EnsureEditable(OwnerId callerId)
     {
@@ -169,6 +176,7 @@ internal sealed class InternalNode<T> : Node<T>
         var newChildren = new Node<T>?[Len];
         Array.Copy(Children, newChildren, Len);
 
+        // Shrink SizeTable
         int[]? newTable = null;
         if (SizeTable != null)
         {
@@ -179,6 +187,7 @@ internal sealed class InternalNode<T> : Node<T>
         return new InternalNode<T>(newChildren, newTable, Len, OwnerId.None);
     }
 
+    // Clone and replace a single child (Path Copying)
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public InternalNode<T> CloneAndSetChild(int childIdx, Node<T> newChild)
     {

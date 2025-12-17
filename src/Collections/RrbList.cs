@@ -181,34 +181,42 @@ public sealed partial class RrbList<T> where T : notnull
         get
         {
             if ((uint)index >= (uint)Count) throw new IndexOutOfRangeException();
-    
+
+            // 1. Check Tail
             int tailOffset = Count - TailLen;
-            if (index >= tailOffset)
+            if (index >= tailOffset) return Tail.Items[index - tailOffset];
+
+            Node<T> node = Root!;
+            int shift = Shift;
+
+            if (shift == 0) 
+                return RrbAlgorithm.AsLeaf(node).Items[index];
+
+            // Relaxed Loop (Runs only as long as we are in relaxed nodes)
+            while ((node.Flags & NodeFlags.IsRelaxed) != 0)
             {
-                // Maybe use Unsafe.Add while we are at it?
-                return Tail.Items[index - tailOffset];
-            }
-    
-            Node<T> current = Root!;
-    
-            for (int shift = Shift; shift > 0; shift -= Constants.RRB_BITS)
-            {
-                // Uses an unsafe cast.
-                var internalNode = RrbAlgorithm.AsInternal(current);
+                var internalNode = Unsafe.As<InternalNode<T>>(node);
+                var (childIndex, relativeIndex) = RrbAlgorithm.GetRelaxedIndexAvx(internalNode, index, shift);
             
-                // AVX-accelerated Lookup + Relative Index Calculation
-                // This handles both Dense (bit shift) and Relaxed (AVX search) paths correctly.
-                var (childIndex, relativeIndex) = RrbAlgorithm.GetChildIndexAvx(internalNode, index, shift);
-    
-                // Set index and current node.
+                node = internalNode.Children[childIndex]!;
                 index = relativeIndex;
-                current = internalNode.Children[childIndex]!;
+                shift -= Constants.RRB_BITS;
+                if (shift == 0)
+                    return RrbAlgorithm.AsLeaf(node).Items[index];
+
             }
-        
-            // Final Leaf Access
-            // We use 'index' directly because GetChildIndexAvx ensures it is relative 
-            // to the start of this leaf. The mask could be elided, i think.
-            return RrbAlgorithm.AsLeaf(current).Items[index & Constants.RRB_MASK];
+
+            // Dense Loop 
+            while (shift > 0)
+            {
+                int childIndex = (index >> shift) & Constants.RRB_MASK;
+                // Unsafe cast is safe here because shift > 0
+                node = Unsafe.As<InternalNode<T>>(node).Children[childIndex]!;
+                shift -= Constants.RRB_BITS;
+            }
+
+            // 4. Leaf Access
+            return Unsafe.As<LeafNode<T>>(node).Items[index & Constants.RRB_MASK];
         }
     }
 

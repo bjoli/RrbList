@@ -469,7 +469,7 @@ internal static class RrbAlgorithm
 
             // If a child is Relaxed (has a SizeTable), THIS node must also be Relaxed (have a SizeTable).
             // Because we need to subtract offsets before entering the relaxed child.
-            if (child is InternalNode<T> internalChild && internalChild.SizeTable != null) isBalanced = false;
+            if ((child.Flags & NodeFlags.IsRelaxed) != 0) isBalanced = false;
         }
 
         // If balanced, discard the array and pass null.
@@ -834,8 +834,11 @@ internal static class RrbAlgorithm
     internal static int GetTotalSize<T>(Node<T> node, int shift)
     {
         if (shift == 0) return node.Len;
-        if (node is InternalNode<T> inode && inode.SizeTable != null)
-            return inode.SizeTable[inode.Len - 1];
+        if ((node.Flags & NodeFlags.IsRelaxed) != 0)
+        {
+            // Now we know it's safe to cast and read
+            return Unsafe.As<InternalNode<T>>(node).SizeTable![node.Len - 1];
+        }
 
         // It's a dense node.
         // However, if we are calling this on a child that forced relaxation, 
@@ -971,17 +974,59 @@ internal static class RrbAlgorithm
         int shift)
     {
         // Dense / Balanced Path (No SizeTable)
-        if (node.SizeTable == null)
+        if ((node.Flags & NodeFlags.IsRelaxed) == 0)
         {
             int childIndex = (index >> shift) & Constants.RRB_MASK;
             int childStart = childIndex << shift;
             return (childIndex, index - childStart);
         }
 
-        // Relaxed Path (SizeTable Search)
+        return GetRelaxedIndexAvx(node, index, shift);
+    }
+    
+    
+    // The relaxed continuation of above
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static unsafe (int childIndex, int relativeIndex) GetRelaxedIndexAvx<T>(InternalNode<T> node, int index,
+        int shift)
+    {
         int len = node.Len;
         int i = 0;
 
+        // I could see no benefit of this
+        // if (Avx512F.IsSupported && len >= 16)
+        // {
+        //     var vIndex = Vector512.Create(index);
+        //
+        //     fixed (int* tablePtr = node.SizeTable)
+        //     {
+        //         // Stride is 16 integers (64 bytes)
+        //         for (; i <= len - 16; i += 16)
+        //         {
+        //             var vTable = Avx512F.LoadVector512(tablePtr + i);
+        //
+        //             // 1. Compare (Returns Vector512<int>)
+        //             var vResult = Vector512.GreaterThan(vTable, vIndex);
+        //
+        //             // 2. Extract Mask (The missing step!)
+        //             // This grabs the high bit of every integer and packs them into a uint.
+        //             // Since we have 16 ints, we get 16 bits.
+        //             uint mask = (uint)Vector512.ExtractMostSignificantBits(vResult);
+        //
+        //             if (mask != 0)
+        //             {
+        //                 // Find first set bit (first child that is larger than index)
+        //                 int offset = BitOperations.TrailingZeroCount(mask);
+        //                 int matchIndex = i + offset;
+        //         
+        //                 int prevCount = matchIndex > 0 ? tablePtr[matchIndex - 1] : 0;
+        //
+        //                 return (matchIndex, index - prevCount);
+        //             }
+        //         }
+        //     }
+        // }
+        
         // Use AVX2 if supported and profitable (at least one vector worth of data)
         // This is at no cost to the old kind of indexing.
         if (Avx2.IsSupported && len >= 8)
@@ -1029,6 +1074,8 @@ internal static class RrbAlgorithm
         int prev = i > 0 ? table[i - 1] : 0;
         return (i, index - prev);
     }
+    
+    
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static InternalNode<T> AsInternal<T>(Node<T> node) => Unsafe.As<InternalNode<T>>(node);
