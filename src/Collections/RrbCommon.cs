@@ -68,12 +68,6 @@ internal readonly struct OwnerId : IEquatable<OwnerId>
 
     // Returns true if 'this' ID was generated before 'other' ID.
     // This allows us to treat older nodes as immutable without touching them.
-    public bool IsOlderThan(OwnerId other)
-    {
-        if (Gen < other.Gen) return true;
-        if (Gen > other.Gen) return false;
-        return Id < other.Id;
-    }
 
     public bool Equals(OwnerId other) => Id == other.Id && Gen == other.Gen;
     public override bool Equals(object? obj) => obj is OwnerId other && Equals(other);

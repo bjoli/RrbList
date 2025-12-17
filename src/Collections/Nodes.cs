@@ -10,8 +10,6 @@
  */
 
 
-using System.Runtime.CompilerServices;
-
 namespace Collections;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -31,12 +29,13 @@ internal abstract class Node<T>
     public NodeFlags Flags; // 1 byte
 }
 
+[StructLayout(LayoutKind.Sequential, Pack=1)]
 internal sealed class LeafNode<T> : Node<T>
 {
-    public static readonly LeafNode<T> Empty = new(0, null);
+    public static readonly LeafNode<T> Empty = new(0, OwnerId.None);
     public T[] Items;
 
-    public LeafNode(int size, OwnerToken? owner)
+    public LeafNode(int size, OwnerId owner)
     {
         Len = (byte)size;
         Owner = owner;
@@ -74,7 +73,7 @@ internal sealed class LeafNode<T> : Node<T>
     public LeafNode<T> Freeze(OwnerId callerId)
     {
         // 1. Already Immutable (None) OR Effectively Immutable (Older generation)
-        if (Owner.IsNone || Owner.IsOlderThan(callerId))
+        if (Owner.IsNone)
         {
             // If the size is correct, we don't need to do anything.
             if (Items.Length == Len) return this;
@@ -108,7 +107,7 @@ internal sealed class LeafNode<T> : Node<T>
     }
 }
 
-[StructLayout(LayoutKind.Sequential)]
+[StructLayout(LayoutKind.Sequential, Pack=1)]
 internal sealed class InternalNode<T> : Node<T>
 {
     public readonly Node<T>?[] Children; // Reference (8 bytes)
@@ -156,7 +155,7 @@ internal sealed class InternalNode<T> : Node<T>
     {
         // 1. Effectively Immutable check
         // If the node belongs to an older build, we treat it as frozen.
-        if (Owner.IsNone || Owner.IsOlderThan(callerId))
+        if (Owner.IsNone)
         {
             if (Children.Length == Len) return this;
         }

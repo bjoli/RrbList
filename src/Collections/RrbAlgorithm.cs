@@ -490,7 +490,7 @@ internal static class RrbAlgorithm
 
             // Fast Path: Relaxed Node
             // If the node has a SizeTable, we can stop immediately. The table holds the accurate total count.
-            if (internalNode.SizeTable != null)
+            if ((internalNode.Flags & NodeFlags.IsRelaxed) != 0)
             {
                 return totalSize + internalNode.SizeTable[internalNode.Len - 1];
             }
@@ -562,7 +562,7 @@ internal static class RrbAlgorithm
         // Rebuild Size Table
         // If we slice from the left, indices shift, so we almost always need a SizeTable.
         // Exception: If we dropped exact whole subtrees from a balanced node, it stays balanced!
-        var staysBalanced = internalNode.SizeTable == null && dropInChild == 0;
+        var staysBalanced = ((internalNode.Flags & NodeFlags.IsRelaxed) == 0) && dropInChild == 0;
 
         int[]? newSizeTable = null;
         if (!staysBalanced)
@@ -670,7 +670,7 @@ internal static class RrbAlgorithm
                         var editable = internalNode.EnsureEditable(token);
                         editable.Children[editable.Len - 1] = mergedLeaf;
 
-                        if (editable.SizeTable != null) editable.SizeTable[editable.Len - 1] += tailToInsert.Len;
+                        if ((editable.Flags & NodeFlags.IsRelaxed) != 0) editable.SizeTable[editable.Len - 1] += tailToInsert.Len;
                         return editable;
                     }
             }
@@ -698,7 +698,7 @@ internal static class RrbAlgorithm
                 var editable = internalNode.EnsureEditable(token);
                 editable.Children[editable.Len - 1] = newLastChild;
 
-                if (editable.SizeTable != null) editable.SizeTable[editable.Len - 1] += tailToInsert.Len;
+                if ((editable.Flags & NodeFlags.IsRelaxed) != 0) editable.SizeTable[editable.Len - 1] += tailToInsert.Len;
                 return editable;
             }
         }
@@ -719,10 +719,11 @@ internal static class RrbAlgorithm
     {
         //  CHECK FOR DENSITY VIOLATION
         // if pushing a tail into a dense tree where the last leaf is not completely full
-        // This fixes that. 
+        // This fixes that.
+        // TODO: fix this invariant. A dense tree should nnever have non-full nodes.
         var forceRelaxed = false;
 
-        if (node.SizeTable == null && node.Len > 0)
+        if ((node.Flags & NodeFlags.IsRelaxed) == 0 && node.Len > 0)
         {
             var lastChild = node.Children[node.Len - 1]!;
             if (shift == Constants.RRB_BITS)
@@ -730,7 +731,7 @@ internal static class RrbAlgorithm
                 if (lastChild.Len < Constants.RRB_BRANCHING)
                     forceRelaxed = true;
             }
-            else if (lastChild is InternalNode<T> inode && inode.SizeTable != null)
+            else if (lastChild is InternalNode<T> inode && ((inode.Flags & NodeFlags.IsRelaxed) == 0))
             {
                 forceRelaxed = true;
             }
@@ -741,14 +742,14 @@ internal static class RrbAlgorithm
         {
             var editable = node;
 
-            if (forceRelaxed && node.SizeTable == null)
+            if (forceRelaxed && ((node.Flags & NodeFlags.IsRelaxed) == 0))
                 editable = CreateNodeWithSizeTable(node, token, shift);
             else
                 editable = node.EnsureEditable(token);
 
             editable.Children[editable.Len] = childToAdd;
 
-            if (editable.SizeTable != null)
+            if ((editable.Flags & NodeFlags.IsRelaxed) != 0)
             {
                 var prevTotal = editable.Len > 0 ? editable.SizeTable[editable.Len - 1] : 0;
                 var addedSize = GetTotalSize(childToAdd, shift - Constants.RRB_BITS);
@@ -768,11 +769,11 @@ internal static class RrbAlgorithm
 
         int[]? newSizeTable = null;
 
-        if (node.SizeTable != null || forceRelaxed)
+        if (((node.Flags & NodeFlags.IsRelaxed) != 0) || forceRelaxed)
         {
             newSizeTable = new int[newLen];
-
-            if (node.SizeTable != null)
+            
+            if ((node.Flags & NodeFlags.IsRelaxed) != 0)
             {
                 Array.Copy(node.SizeTable, newSizeTable, node.Len);
             }
