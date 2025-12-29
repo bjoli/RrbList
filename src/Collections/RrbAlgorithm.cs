@@ -731,10 +731,10 @@ internal static class RrbAlgorithm
                 if (lastChild.Len < Constants.RRB_BRANCHING)
                     forceRelaxed = true;
             }
-            else if (lastChild is InternalNode<T> inode && ((inode.Flags & NodeFlags.IsRelaxed) == 0))
-            {
-                forceRelaxed = true;
-            }
+            // else if (lastChild is InternalNode<T> inode && ((inode.Flags & NodeFlags.IsRelaxed) == 0))
+            // {
+            //     forceRelaxed = true;
+            // }
         }
 
         // TRANSIENT PATH

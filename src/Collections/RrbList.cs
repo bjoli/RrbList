@@ -190,9 +190,8 @@ public sealed partial class RrbList<T> where T : notnull
             int shift = Shift;
 
             if (shift == 0) 
-                return RrbAlgorithm.AsLeaf(node).Items[index];
+                 return RrbAlgorithm.AsLeaf(node).Items[index];
 
-            // Relaxed Loop (Runs only as long as we are in relaxed nodes)
             while ((node.Flags & NodeFlags.IsRelaxed) != 0)
             {
                 var internalNode = Unsafe.As<InternalNode<T>>(node);
@@ -201,12 +200,8 @@ public sealed partial class RrbList<T> where T : notnull
                 node = internalNode.Children[childIndex]!;
                 index = relativeIndex;
                 shift -= Constants.RRB_BITS;
-                if (shift == 0)
-                    return RrbAlgorithm.AsLeaf(node).Items[index];
-
             }
 
-            // Dense Loop 
             while (shift > 0)
             {
                 int childIndex = (index >> shift) & Constants.RRB_MASK;
