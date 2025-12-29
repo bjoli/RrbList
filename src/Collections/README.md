@@ -115,23 +115,7 @@ A lot of the casting is done in places where it would make sense to do it using 
 
 # Benchmarks
 
-Following are some benchmarks comparing List, ImmutableList and RrbList (balanced and unbalanced). Addrange for List<T> removed because it is too slow. This benchmarks Lookups, removals, iteration, slicing and merging. 
-
-To make sense of this: Nothing beats List<T> for adding an item to the end. RrbBuilder comes closest, but is still about 6x slower. 
-
-Indexing is also faster with List<int>. The dense RrbList comes closest, but is still much slower. Currently I have a performance regression here, where some of the optimizations are making the code slower. The numbers for a dense list should be closer to 2.6, 3.5, and 5.5. I am trying to figure this out.
-
-Inserting is a different beast: the unbalanced RrbList is the fastest. Don't look too close at the dense RrbList. One Insert will turn a dense list into an unbalanced list. The unbalanced list used in the benchmark is also _VERY_ unbalanced, meaning there is very little overhead when doing an insertion with regards to creating new lookup tables. 
-
-Iteration is a weird one as well. RrbList is a lot faster than ImmutableList, but a bit more than 3x slower than List<T>. Using the higher order function Fold, we remove the iterator overhead and end up slightly beating List<T> - despite the new deabstraction stuff in .net 10. Why? I believe List<T>, to ensure being correct, checks the lists version every time so that it does not try to iterate over a list that has been changed by another thread. using for(var i=0; i < mylist.Count; i++) {} will certainly be faster. 
-
-Merge: the tree (AVL?) in ImmutableList shows where it is king! I messed up the list benchmark, but list is slow.
-
-RemoveAt: List<T> has a strong start but fails miserably after N=500. RrbList wins again. 
-
-SetItem: List<T> wins. If you need to do a lot of SetItem, convert your RrbTree to a Builder and make sure to do a ToImmutable() and you are fine! The current benchmark is pretty bad for the Builder since it is updating random indices and it starts by doing lots of copying. In the real world this is likely a lot faster. 
-
-Slicing: RrbTrees win. List is slow above something like 500 items. ImmutableList is just slow. 
+Following are some benchmarks comparing List, ImmutableList and RrbList (balanced and unbalanced).
 
 ```
 
@@ -145,12 +129,12 @@ Job=ShortRun  IterationCount=3  LaunchCount=1
 WarmupCount=3  
 
 ```
+
+### Add to the end
+List beats everything with regards to adding to the end of the sequence. Hands down. The RrbBuilder is distant 2nd. This is bound to change a little bit, since there is one crucial optimization I can do to the builder: holding on to the right edge of the tree, meaning I can push a tail without hunting pointers. Scala vectors do something similar, but in a generalized manner. 
+
 | Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
 |--------------------------- |---------------- |------------- |------- |----------------:|----------:|
-| Merge_List                 | 10000           | 1            | 100    |   1,182.8542 ns |   14418 B |
-| Merge_List                 | 10000           | 1            | 10000  |     809.0630 ns |    8184 B |
-| Merge_List                 | 10000           | 1            | 100000 |   1,090.7471 ns |   10160 B |
-|                            |                 |              |        |                 |           |
 | RrbList.Add                | Default         | 16           | 100    |      16.1995 ns |     136 B |
 | RrbListUnbalanced.Add      | Default         | 16           | 100    |      15.8833 ns |     128 B |
 | RrbBuilder.Add             | Default         | 16           | 100    |       5.1326 ns |       6 B |
@@ -166,7 +150,15 @@ WarmupCount=3
 | RrbBuilder.Add             | Default         | 16           | 100000 |       5.2880 ns |       6 B |
 | ImmutableList.Add          | Default         | 16           | 100000 |     127.8313 ns |     840 B |
 | List.Add                   | Default         | 16           | 100000 |       0.8616 ns |         - |
-|                            |                 |              |        |                 |           |
+
+
+### Indexing
+
+This benchmark indexes into the data at three different points. List is yet again the fastest. RrbList is slightly faster than immutableList. I have hade a pretty big regression here with regard to the dense list. The proper numbers for dense lists should be something closer to 2.7, 3.5 and 5ns. 
+
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
 | &#39;RrbList[i]&#39;               | Default         | 16           | 100    |       3.0570 ns |         - |
 | &#39;RrbListUnbalanced[i]&#39;     | Default         | 16           | 100    |       5.9842 ns |         - |
 | &#39;ImmutableList[i]&#39;         | Default         | 16           | 100    |       6.1528 ns |         - |
@@ -179,7 +171,13 @@ WarmupCount=3
 | &#39;RrbListUnbalanced[i]&#39;     | Default         | 16           | 100000 |      22.6037 ns |         - |
 | &#39;ImmutableList[i]&#39;         | Default         | 16           | 100000 |      16.3123 ns |         - |
 | &#39;List[i]&#39;                  | Default         | 16           | 100000 |       0.5200 ns |         - |
-|                            |                 |              |        |                 |           |
+
+### Insert
+
+Here the unbalanced RrbList wins big. Something is going on with the small List, and it should probably be the fastest at N=100 but the slowest from something like N=500. Don't look too much at the dense list. It will degrade into an unbalanced list on the first insert, which will make later inserts faster. 
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
 | RrbList.Insert             | Default         | 16           | 100    |      55.4892 ns |     616 B |
 | RrbListUnbalanced.Insert   | Default         | 16           | 100    |      37.9352 ns |     376 B |
 | ImmutableList.Insert       | Default         | 16           | 100    |      54.1717 ns |     360 B |
@@ -192,7 +190,15 @@ WarmupCount=3
 | RrbListUnbalanced.Insert   | Default         | 16           | 100000 |     114.1616 ns |    1344 B |
 | ImmutableList.Insert       | Default         | 16           | 100000 |     129.0683 ns |     840 B |
 | List.Insert                | Default         | 16           | 100000 |  30,939.2367 ns |         - |
-|                            |                 |              |        |                 |           |
+
+
+### Iteration 
+
+The absolute fastest way to iterate over a List is using for(var i=0; i < mylist.Count; i++) {...}. The enumerator has some safety checks baked in to make it thread safe. External iteration on a list is the fastest in all cases. ImmutableList is slow. Internal iteration of the tree (RrbList.Fold) is sliiightly faster than enumerating a List.
+
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
 | RrbList.Foreach            | Default         | 16           | 100    |      43.3697 ns |     184 B |
 | RrbList.Fold               | Default         | 16           | 100    |      27.4774 ns |         - |
 | RrbListUnbalanced.Foreach  | Default         | 16           | 100    |      42.4336 ns |     184 B |
@@ -208,7 +214,15 @@ WarmupCount=3
 | RrbListUnbalanced.Foreach  | Default         | 16           | 100000 |  79,131.4468 ns |     184 B |
 | ImmutableList.Foreach      | Default         | 16           | 100000 | 511,009.9098 ns |         - |
 | List.Foreach               | Default         | 16           | 100000 |  29,519.2055 ns |         - |
-|                            |                 |              |        |                 |           |
+
+
+### Merge
+
+ImmutableList is going to be very fast here. AddRange to a AVL tree is fast. List, being mutable, became _very_ large during this test, and ended up getting more than 2 billion items. 
+
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
 | RrbList.Merge              | Default         | 16           | 100    |     384.1996 ns |    2008 B |
 | RrbListUnbalanced.Merge    | Default         | 16           | 100    |     377.4185 ns |    2048 B |
 | ImmutableList.AddRange     | Default         | 16           | 100    |     277.5808 ns |     696 B |
@@ -218,7 +232,13 @@ WarmupCount=3
 | RrbList.Merge              | Default         | 16           | 100000 |     565.9292 ns |    3384 B |
 | RrbListUnbalanced.Merge    | Default         | 16           | 100000 |     611.4363 ns |    3640 B |
 | ImmutableList.AddRange     | Default         | 16           | 100000 |     423.3641 ns |    1176 B |
-|                            |                 |              |        |                 |           |
+
+### RemoveAt
+
+Removes an item in the list. RrbList wins.
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
 | RrbList.RemoveAt           | Default         | 16           | 100    |      34.9887 ns |     376 B |
 | RrbListUnbalanced.RemoveAt | Default         | 16           | 100    |      37.3748 ns |     368 B |
 | ImmutableList.RemoveAt     | Default         | 16           | 100    |      50.1907 ns |     312 B |
@@ -231,7 +251,14 @@ WarmupCount=3
 | RrbListUnbalanced.RemoveAt | Default         | 16           | 100000 |     111.6326 ns |    1336 B |
 | ImmutableList.RemoveAt     | Default         | 16           | 100000 |     151.9118 ns |     792 B |
 | List.RemoveAt              | Default         | 16           | 100000 |   1,533.3857 ns |         - |
-|                            |                 |              |        |                 |           |
+
+### SetItem
+
+This sets 50 elements in the list. Unsurprisingly, List wins. I suspect a more realistic load would make RrbBuilder faster, but it would still be something like 5x slower than List.
+
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
 | RrbList.SetItem            | Default         | 16           | 100    |     617.4252 ns |    6720 B |
 | RrbBuilder.SetItem         | Default         | 16           | 100    |     148.8264 ns |         - |
 | RrbListUnbalanced.SetItem  | Default         | 16           | 100    |     639.2177 ns |    6720 B |
@@ -247,7 +274,14 @@ WarmupCount=3
 | RrbListUnbalanced.SetItem  | Default         | 16           | 100000 |   1,813.1959 ns |   20000 B |
 | ImmutableList.SetItem      | Default         | 16           | 100000 |   3,285.8284 ns |   15504 B |
 | &#39;List[i] = x&#39;              | Default         | 16           | 100000 |       9.6382 ns |         - |
-|                            |                 |              |        |                 |           |
+
+### Slice
+.
+This takes a slice of the datastructure (between 25% and 50% of the list). Is the fastest from something like N=300.
+
+
+| Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
+|--------------------------- |---------------- |------------- |------- |----------------:|----------:|
 | RrbList.Slice              | Default         | 16           | 100    |      54.9605 ns |     488 B |
 | RrbListUnbalanced.Slice    | Default         | 16           | 100    |      60.3968 ns |     520 B |
 | ImmutableList.GetRange     | Default         | 16           | 100    |     208.9326 ns |    1224 B |
