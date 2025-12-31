@@ -1,5 +1,8 @@
 # RrbList - A C# RRB tree implementation
 
+
+DO NOT USE. THERE IS A BUG IN THE LOGIC FOR SETTING SIZETABLES. 
+
 We all know about clojure's persistent vectors. They are old news by this point, not only are they no longer really
 exciting, but there are greener pastures. In short: RRB trees are the bee's knees. They are exactly like clojure's
 pvectors, but with an extra twist: you are now allowed to do fast splits and merges. That adds the lovely ability of
