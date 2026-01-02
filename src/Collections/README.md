@@ -1,7 +1,7 @@
 # RrbList - A C# RRB tree implementation
 
 
-DO NOT USE. THERE IS A BUG IN THE LOGIC FOR SETTING SIZETABLES IN INSERT. If you use it as a leftwise dense tree it is fine. 
+DO NOT USE. THERE IS A BUG IN THE LOGIC FOR SETTING SIZETABLES IN INSERT. ~~If you use it as a leftwise dense tree it is fine.~~ The bug is located. Don't use Insert. Do it the slow way with Split, Normalize, Add and Merge. 
 
 We all know about clojure's persistent vectors. They are old news by this point, not only are they no longer really
 exciting, but there are greener pastures. In short: RRB trees are the bee's knees. They are exactly like clojure's
