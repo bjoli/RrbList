@@ -23,7 +23,7 @@ public class FuzzTest
         // reuse the seed printed at the end of a failed test.
         var printCode = false;
         var seed = Environment.TickCount;
-        //int seed = 27306740; // Uncomment to reproduce a specific crash
+        // This seed reproduces a crash in Insert: 1431838;
 
 
         var random = new Random(seed);
@@ -89,7 +89,6 @@ public class FuzzTest
                 {
                     var index = random.Next(0, expected.Count + 1);
 
-
                     if (printCode)
                         Console.WriteLine($"actual.Insert({index}, {val});\n expected.Insert({index}, {val});\n");
 
@@ -123,7 +122,8 @@ public class FuzzTest
                         var idx = random.Next(0, expected.Count);
                         if (expected[idx] != actual[idx])
                         {
-                            Console.WriteLine("bp");
+                            if (idx == 37569) 
+                                Console.WriteLine("bp");
                             throw new Exception($"Value Mismatch at index {idx} (iter {i}). " +
                                                 $"Ex: {expected[idx]}, Ac: {actual[idx]}");
                         }

@@ -1375,7 +1375,7 @@ internal static class RrbAlgorithm
                 Array.Copy(internalNode.SizeTable, newSizeTable, internalNode.Len);
                 for (var i = childIndex; i < internalNode.Len; i++) newSizeTable[i]++;
             }
-            else if (childIndex < internalNode.Len - 1)
+            else if (childIndex < internalNode.Len - 1 || (result.NewNode.Flags & NodeFlags.IsRelaxed) != 0)
             {
                 // DENSE -> RELAXED (Math Optimization)
                 // I just assume any insertion becomes relaxed. For my sanity
@@ -1401,8 +1401,21 @@ internal static class RrbAlgorithm
                 // If we modified childIndex, we need its new seize
                 // Old size was 'blockSize' (because it's a middle child of a Dense node).
                 // New size is blockSize + 1.
-
-                currentSum += blockSize + 1;
+                
+                // 2. The Modified Child
+                // Do not assume 'blockSize + 1'. If we are fixing a Size 1 node (childIndex == Len-1),
+                // the old size was NOT necessarily blockSize.
+                if (childIndex < internalNode.Len - 1)
+                {
+                    // Middle child was definitely full before.
+                    currentSum += blockSize + 1;
+                }
+                else
+                {
+                    // Last child was potentially partial. Calculate actual new size.
+                    // We can trust GetTotalSize because we are in the "no split" zone.
+                    currentSum += GetTotalSize(result.NewNode, childShift);
+                }
                 newSizeTable[childIndex] = currentSum;
 
                 // Handle Children after the modified index
