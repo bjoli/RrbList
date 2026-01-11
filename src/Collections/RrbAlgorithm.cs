@@ -101,50 +101,6 @@ internal static class RrbAlgorithm
         return internalNode;
     }
 
-    public static Node<T>? Slice<T>(Node<T> root, int newCount, int shift)
-    {
-        if (newCount == 0) return null;
-        return SliceRightRec(root, newCount, shift);
-    }
-
-    private static Node<T> SliceRightRec<T>(Node<T> node, int limit, int shift)
-    {
-        if (shift == 0)
-        {
-            var leaf = AsLeaf(node);
-            if (leaf.Len == limit) return leaf;
-
-            var newItems = new T[limit];
-            Array.Copy(leaf.Items, newItems, limit);
-            return new LeafNode<T>(newItems, limit, OwnerId.None);
-        }
-
-        var internalNode = AsInternal(node);
-
-        var (childIdx, indexInChild) = GetChildIndexAvx(internalNode, limit - 1, shift);
-
-        // Convert 0-based index back to 1-based count for the recursive limit
-        var limitInChild = indexInChild + 1;
-
-        var child = internalNode.Children[childIdx]!;
-        var slicedChild = SliceRightRec(child, limitInChild, shift - Constants.RRB_BITS);
-
-        var newLen = childIdx + 1;
-        var newChildren = new Node<T>?[newLen];
-        Array.Copy(internalNode.Children, newChildren, newLen);
-        newChildren[childIdx] = slicedChild;
-
-        int[]? newSizeTable = null;
-        if (internalNode.SizeTable != null)
-        {
-            newSizeTable = new int[newLen];
-            Array.Copy(internalNode.SizeTable, newSizeTable, newLen);
-            newSizeTable[childIdx] = limit;
-        }
-
-        return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
-    }
-
 
     // TODO: remove this and fix Merge.
     public static Node<T> FlushTail<T>(Node<T>? root, LeafNode<T> tail, int treeCount, ref int shift)
@@ -235,73 +191,6 @@ internal static class RrbAlgorithm
             return Rebalance(left, mergedMid, right, leftShift, subShift, out newShift);
         }
     }
-
-// Returns (LeftNode, RightNode) split at the given index.
-    public static (Node<T>? Left, Node<T>? Right) Split<T>(Node<T> root, int splitIndex, int shift,
-        OwnerId token)
-    {
-        if (shift == 0)
-        {
-            var leaf = AsLeaf(root);
-            if (splitIndex == 0) return (null, leaf);
-            if (splitIndex == leaf.Len) return (leaf, null);
-
-            var rightLen = leaf.Len - splitIndex;
-
-            var leftItems = new T[splitIndex];
-            Array.Copy(leaf.Items, 0, leftItems, 0, splitIndex);
-            var leftNode = new LeafNode<T>(leftItems, splitIndex, token);
-
-            var rightItems = new T[rightLen];
-            Array.Copy(leaf.Items, splitIndex, rightItems, 0, rightLen);
-            var rightNode = new LeafNode<T>(rightItems, rightLen, token);
-
-            return (leftNode, rightNode);
-        }
-        
-        // Shift 0 is handled. We are above the leaves, and can do unsafe casts.
-        var internalNode = AsInternal(root);
-        var (childIdx, splitInChild) = GetChildIndexAvx(internalNode, splitIndex, shift);
-        var (childLeft, childRight) = Split(internalNode.Children[childIdx]!, splitInChild,
-            shift - Constants.RRB_BITS, token);
-
-        Node<T>? leftParent = null;
-        if (childIdx > 0 || childLeft != null)
-        {
-            var newLeftLen = childIdx + (childLeft != null ? 1 : 0);
-            var newLeftChildren = new Node<T>?[newLeftLen];
-
-            if (childIdx > 0) Array.Copy(internalNode.Children, 0, newLeftChildren, 0, childIdx);
-            if (childLeft != null) newLeftChildren[childIdx] = childLeft;
-
-            var tempLeft = new InternalNode<T>(newLeftChildren, null, newLeftLen, token);
-            leftParent = SetSizes(tempLeft, shift);
-        }
-
-        Node<T>? rightParent = null;
-        var rightSiblings = internalNode.Len - (childIdx + 1);
-        if (rightSiblings > 0 || childRight != null)
-        {
-            var newRightLen = (childRight != null ? 1 : 0) + rightSiblings;
-            var newRightChildren = new Node<T>?[newRightLen];
-
-            var offset = 0;
-            if (childRight != null)
-            {
-                newRightChildren[0] = childRight;
-                offset = 1;
-            }
-
-            if (rightSiblings > 0)
-                Array.Copy(internalNode.Children, childIdx + 1, newRightChildren, offset, rightSiblings);
-
-            var tempRight = new InternalNode<T>(newRightChildren, null, newRightLen, token);
-            rightParent = SetSizes(tempRight, shift);
-        }
-
-        return (leftParent, rightParent);
-    }
-
 
     private static Node<T> Rebalance<T>(
         InternalNode<T>? left,
@@ -440,7 +329,7 @@ internal static class RrbAlgorithm
 
         return new InternalNode<T>(newChildren, null, slen, OwnerId.None);
     }
-
+    
 
     
     private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
@@ -517,80 +406,6 @@ internal static class RrbAlgorithm
         Array.Copy(orig.Children, start, newArr, 0, len);
         return new InternalNode<T>(newArr, null, len, OwnerId.None);
     }
-
-    public static Node<T> SliceLeft<T>(Node<T> root, int toDrop, int shift)
-    {
-        if (toDrop == 0) return root;
-        // Note: Caller guarantees toDrop < total count
-        return SliceLeftRec(root, toDrop, shift);
-    }
-
-    private static Node<T> SliceLeftRec<T>(Node<T> node, int toDrop, int shift)
-    {
-        // Base Case: Leaf
-        if (shift == 0)
-        {
-            var leaf = AsLeaf(node);
-            var newLen = leaf.Len - toDrop;
-            var newItems = new T[newLen];
-            Array.Copy(leaf.Items, toDrop, newItems, 0, newLen);
-            return new LeafNode<T>(newItems, newLen, OwnerId.None);
-        }
-
-        var internalNode = AsInternal(node);
-        var (subidx, dropInChild) = GetChildIndexAvx(internalNode, toDrop, shift);
-
-
-        // Reconstruct Children Array
-        // We discard children [0...subidx-1]
-        // We slice child [subidx]
-        // We keep children [subidx+1...end]
-
-        var remainingChildren = internalNode.Len - subidx;
-        var newChildren = new Node<T>?[remainingChildren];
-
-        // Handle the split child
-        // if dropInChild == 0, we keep the whole child.
-        if (dropInChild > 0)
-            newChildren[0] = SliceLeftRec(internalNode.Children[subidx]!, dropInChild, shift - Constants.RRB_BITS);
-        else
-            newChildren[0] = internalNode.Children[subidx];
-
-        // Copy remaining siblings
-        if (remainingChildren > 1) Array.Copy(internalNode.Children, subidx + 1, newChildren, 1, remainingChildren - 1);
-
-        // Rebuild Size Table
-        // If we slice from the left, indices shift, so we almost always need a SizeTable.
-        // Exception: If we dropped exact whole subtrees from a balanced node, it stays balanced!
-        var staysBalanced = ((internalNode.Flags & NodeFlags.IsRelaxed) == 0) && dropInChild == 0;
-
-        int[]? newSizeTable = null;
-        if (!staysBalanced)
-        {
-            newSizeTable = new int[remainingChildren];
-
-            if (internalNode.SizeTable != null)
-            {
-                // Adjust existing table
-                for (var i = 0; i < remainingChildren; i++)
-                    newSizeTable[i] = internalNode.SizeTable[subidx + i] - toDrop;
-            }
-            else
-            {
-                // Create table from balanced assumptions
-                var childCapacity = 1 << shift;
-                for (var i = 0; i < remainingChildren; i++)
-                {
-                    // Original cumulative size was (subidx + i + 1) * capacity
-                    var oldCumulative = (long)(subidx + i + 1) * childCapacity;
-                    newSizeTable[i] = (int)(oldCumulative - toDrop);
-                }
-            }
-        }
-
-        return new InternalNode<T>(newChildren, newSizeTable, remainingChildren, OwnerId.None);
-    }
-
 
     public static void Push<T>(
         ref Node<T>? root,
@@ -971,7 +786,7 @@ internal static class RrbAlgorithm
     // This is a method to get the child index. If the node is dense it does a regular dense search
     // if it is relaxed, it uses AVX to search 8 elements at a time.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static unsafe (int childIndex, int relativeIndex) GetChildIndexAvx<T>(InternalNode<T> node, int index,
+    internal static (int childIndex, int relativeIndex) GetChildIndexAvx<T>(InternalNode<T> node, int index,
         int shift)
     {
         // Dense / Balanced Path (No SizeTable)
@@ -1075,69 +890,29 @@ internal static class RrbAlgorithm
         int prev = i > 0 ? table[i - 1] : 0;
         return (i, index - prev);
     }
-    
-    
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static InternalNode<T> AsInternal<T>(Node<T> node) => Unsafe.As<InternalNode<T>>(node);
+
+
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static LeafNode<T> AsLeaf<T>(Node<T> node) => Unsafe.As<LeafNode<T>>(node);
-
-
-    public static (Node<T>? NewNode, LeafNode<T> PromotedTail) PromoteTail<T>(Node<T> node, int shift,
-        OwnerId token)
+    internal static InternalNode<T> AsInternal<T>(Node<T> node)
     {
-        // Base Case: We are at the leaf level. 
-        // This entire node becomes the promoted tail.
-        if (shift == 0) return (null, AsLeaf(node));
-        
-        // From here we know the node is internal, since leaf nodes are handled above.
-        var internalNode = AsInternal(node);
-        var lastIdx = internalNode.Len - 1;
-        var lastChild = internalNode.Children[lastIdx]!;
-
-        // Recurse down the right edge
-        var (newLastChild, promotedTail) = PromoteTail(lastChild, shift - Constants.RRB_BITS, token);
-
-        // If the child was fully consumed (it became the tail), we shrink this node
-        // If the child remains (it gave up a descendant to be the tail), we keep size but update child
-        var newLen = newLastChild == null ? lastIdx : internalNode.Len;
-
-        // If this node becomes empty, return null so the parent knows to remove it too
-        if (newLen == 0) return (null, promotedTail);
-
-
-        // Reconstruct this Node
-
-        // Copy Children
-        var newChildren = new Node<T>?[newLen];
-        Array.Copy(internalNode.Children, newChildren, newLen);
-
-        if (newLastChild != null) newChildren[lastIdx] = newLastChild;
-
-        // Handle SizeTable
-        // If we didn't have one, we don't need one (removing from the right preserves dense prefix).
-        // If we DID have one, we must update it.
-        int[]? newSizeTable = null;
-
-        if (internalNode.SizeTable != null)
-        {
-            newSizeTable = new int[newLen];
-            // Copy the table up to the new length
-            Array.Copy(internalNode.SizeTable, newSizeTable, newLen);
-
-            if (newLastChild != null)
-                // If the last child still exists, it is smaller now. 
-                // We reduce the cumulative total at this index by the size of the removed tail.
-                newSizeTable[lastIdx] -= promotedTail.Len;
-            // If newLastChild is null, we just chopped off the last entry of the table, 
-            // which correctly represents the new cumulative total of the previous sibling.
-        }
-
-        var newNode = new InternalNode<T>(newChildren, newSizeTable, newLen, token);
-        return (newNode, promotedTail);
+        #if DEBUG
+            return (InternalNode<T>)node;
+        #else
+            return Unsafe.As<InternalNode<T>>(node);
+        #endif
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static LeafNode<T> AsLeaf<T>(Node<T> node)
+    {
+        #if DEBUG
+            return (LeafNode<T>)node;
+        #else
+            return Unsafe.As<LeafNode<T>>(node);
+        #endif
+    }
+
 
 
     public static Node<T>? RemoveRecursive<T>(Node<T> node, int index, int shift)
@@ -1596,5 +1371,157 @@ internal static class RrbAlgorithm
 
         return 1 << (childShift + Constants.RRB_BITS);
     }
+
+    
+    public static (Node<T>? LeftRoot, LeafNode<T> LeftTail, Node<T>? RightRoot) MasterSplit<T>(
+    Node<T> root, 
+    int splitIndex, 
+    int shift, 
+    OwnerId token,
+    bool buildLeft = true, 
+    bool buildRight = true)
+{
+    // ---------------------------------------------------------
+    // BASE CASE: Leaf Level
+    // ---------------------------------------------------------
+    if (shift == 0)
+    {
+        var leaf = AsLeaf(root);
+
+        // Edge Case: Split at 0
+        // Left is empty, Right is full leaf. 
+        // Tail is empty.
+        if (splitIndex == 0) 
+            return (null, LeafNode<T>.Empty, buildRight ? leaf : null);
+
+        // Edge Case: Split at End 
+        // Left is full leaf (Promoted to Tail), Right is empty
+        if (splitIndex == leaf.Len) 
+            return (null, buildLeft ? leaf : null, null);
+
+        // Standard Split
+        var rightLen = leaf.Len - splitIndex;
+        
+        LeafNode<T>? leftTail = null;
+        if (buildLeft)
+        {
+            var leftItems = new T[splitIndex];
+            Array.Copy(leaf.Items, 0, leftItems, 0, splitIndex);
+            leftTail = new LeafNode<T>(leftItems, splitIndex, token);
+        }
+
+        Node<T>? rightNode = null;
+        if (buildRight)
+        {
+            var rightItems = new T[rightLen];
+            Array.Copy(leaf.Items, splitIndex, rightItems, 0, rightLen);
+            rightNode = new LeafNode<T>(rightItems, rightLen, token);
+        }
+
+        return (null, leftTail, rightNode);
+    }
+
+    // ---------------------------------------------------------
+    // RECURSIVE STEP: Internal Level
+    // ------------------------------------------------
+    var internalNode = AsInternal(root);
+    var (childIdx, splitInChild) = GetChildIndexAvx(internalNode, splitIndex, shift);
+
+    // If the split index aligns exactly with the end of the node,
+    // the calculation points to 'Len' (slot after the last child).
+    // We must step back to the last child to extract the Tail from it.
+    if (childIdx >= internalNode.Len)
+    {
+        childIdx = internalNode.Len - 1;
+        
+        // We need 'splitInChild' to be the size of this last child 
+        // (meaning "Take the whole child and promote its tail")
+        if ((internalNode.Flags & NodeFlags.IsRelaxed) != 0)
+        {
+            var prevTotal = (childIdx == 0) ? 0 : internalNode.SizeTable![childIdx - 1];
+            splitInChild = internalNode.SizeTable![childIdx] - prevTotal;
+        }
+        else
+        {
+            // Dense case: Child is full size
+            splitInChild = 1 << (shift - Constants.RRB_BITS);
+            
+            // Note: If the tree itself is partial on the right edge, logic elsewhere 
+            // handles the fact that the leaf might not actually be full 32.
+            // But structurally, we pass the 'full' bit-mask size down.
+        }
+    }
+
+    // Recurse
+    var (childLeftRoot, childLeftTail, childRightRoot) = MasterSplit(
+        internalNode.Children[childIdx]!, 
+        splitInChild, 
+        shift - Constants.RRB_BITS, 
+        token,
+        buildLeft, 
+        buildRight);
+
+    // ---------------------------------------------------------
+    // BUILD LEFT NODE
+    // ---------------------------------
+    Node<T>? leftParent = null;
+    
+    if (buildLeft)
+    {
+        // Logic: We need a node if there are preceding siblings OR if the child returned a root
+        if (childIdx > 0 || childLeftRoot != null)
+        {
+            var newLeftLen = childIdx + (childLeftRoot != null ? 1 : 0);
+            var newLeftChildren = new Node<T>?[newLeftLen];
+
+            if (childIdx > 0) 
+                Array.Copy(internalNode.Children, 0, newLeftChildren, 0, childIdx);
+
+            if (childLeftRoot != null) 
+                newLeftChildren[childIdx] = childLeftRoot;
+
+            var tempLeft = new InternalNode<T>(newLeftChildren, null, newLeftLen, token);
+            leftParent = SetSizes(tempLeft, shift); 
+        }
+    }
+
+    // ---------------------------------------------------------
+    // BUILD RIGHT NODE
+    // -------------------------------------
+    Node<T>? rightParent = null;
+    
+    if (buildRight)
+    {
+        var rightSiblings = internalNode.Len - (childIdx + 1);
+
+        // Logic: We need a node if there are following siblings OR if the child returned a root
+        if (rightSiblings > 0 || childRightRoot != null)
+        {
+            var newRightLen = (childRightRoot != null ? 1 : 0) + rightSiblings;
+            var newRightChildren = new Node<T>?[newRightLen];
+
+            var offset = 0;
+            if (childRightRoot != null)
+            {
+                newRightChildren[0] = childRightRoot;
+                offset = 1;
+            }
+
+            if (rightSiblings > 0)
+                Array.Copy(internalNode.Children, childIdx + 1, newRightChildren, offset, rightSiblings);
+
+            var tempRight = new InternalNode<T>(newRightChildren, null, newRightLen, token);
+
+            rightParent = SetSizes(tempRight, shift);
+        }
+    }
+
+    return (leftParent, childLeftTail, rightParent);
+}
+
+    
+    
+    
+    
 
 }

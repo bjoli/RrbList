@@ -76,8 +76,7 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         var right = Slice(index + count, itemsAfter);
 
         // 3. Merge (O(log N))
-        //    Note: Normalize() fixes the tail if Merge leaves it empty.
-        return left.Merge(right).Normalize();
+        return left.Merge(right);
     }
 
     // Inside RrbList<T>

@@ -125,6 +125,127 @@ public sealed partial class RrbList<T> where T : notnull
             Array.Copy(Tail.Items, 0, array, tailDest, TailLen);
         }
     }
+    public void CopyTo(int index, T[] array, int arrayIndex, int count)
+{
+    // 1. Validation
+    if (array == null) throw new ArgumentNullException(nameof(array));
+    if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
+    if (arrayIndex < 0) throw new ArgumentOutOfRangeException(nameof(arrayIndex));
+    if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
+    if (array.Length - arrayIndex < count) throw new ArgumentException("Destination array is too small.");
+    if (index > Count - count) throw new ArgumentException("Source range is invalid.");
+
+    if (count == 0) return;
+
+    int rootSize = Count - TailLen;
+    int itemsCopied = 0;
+
+    // 2. Copy from Root (Tree)
+    if (Root != null && index < rootSize)
+    {
+        int countFromTree = Math.Min(count, rootSize - index);
+        
+        // Call the helper that mimics your CopyNode structure
+        CopyRangeNode(Root, array, index, arrayIndex, countFromTree, Shift);
+        
+        itemsCopied = countFromTree;
+    }
+
+    // 3. Copy from Tail
+    if (itemsCopied < count)
+    {
+        // Calculate start position relative to the Tail
+        int tailStart = Math.Max(0, index - rootSize);
+        int tailCount = count - itemsCopied;
+        
+        Array.Copy(Tail.Items, tailStart, array, arrayIndex + itemsCopied, tailCount);
+    }
+}
+
+// The Helper: Structured exactly like your CopyNode, but handles ranges
+private void CopyRangeNode(Node<T> node, T[] array, int srcIdx, int destIdx, int count, int shift)
+{
+    // Base Case: Leaf
+    if (shift == 0)
+    {
+        var leaf = (LeafNode<T>)node;
+        Array.Copy(leaf.Items, srcIdx, array, destIdx, count);
+        return;
+    }
+
+    var internalNode = (InternalNode<T>)node;
+    int currentDest = destIdx;
+    int remainingCount = count;
+
+    // RELAXED PATH (Matches your CopyNode structure)
+    if (internalNode.SizeTable != null)
+    {
+        for (var i = 0; i < internalNode.Len; i++)
+        {
+            if (remainingCount <= 0) break;
+
+            // Calculate child bounds
+            int prevTotal = (i == 0) ? 0 : internalNode.SizeTable[i - 1];
+            int childSize = internalNode.SizeTable[i] - prevTotal;
+
+            // Does the requested range overlap this child?
+            // We want data starting at 'srcIdx' (relative to this node)
+            if (srcIdx < prevTotal + childSize)
+            {
+                // Calculate offset inside the child
+                int offsetInChild = Math.Max(0, srcIdx - prevTotal);
+                int copyAmount = Math.Min(remainingCount, childSize - offsetInChild);
+
+                // REUSE: If taking the WHOLE child (from 0 to end), use your fast CopyNode
+                if (offsetInChild == 0 && copyAmount == childSize)
+                {
+                    CopyNode(internalNode.Children[i]!, array, currentDest, shift - Constants.RRB_BITS);
+                }
+                else
+                {
+                    CopyRangeNode(internalNode.Children[i]!, array, offsetInChild, currentDest, copyAmount, shift - Constants.RRB_BITS);
+                }
+
+                currentDest += copyAmount;
+                remainingCount -= copyAmount;
+            }
+        }
+    }
+    // DENSE PATH (Matches your CopyNode structure)
+    else
+    {
+        var childStep = 1 << (shift - Constants.RRB_BITS); // Size of one child
+
+        // Optimization: Jump directly to the first child involved
+        int startChild = srcIdx / childStep;
+        int offsetInChild = srcIdx % childStep;
+
+        for (var i = startChild; i < internalNode.Len; i++)
+        {
+            if (remainingCount <= 0) break;
+
+            // For dense nodes, children are size 'childStep' (unless it's the very last partial one)
+            int copyAmount = Math.Min(remainingCount, childStep - offsetInChild);
+
+            // REUSE: If taking the WHOLE child, use your fast CopyNode
+            // (We check copyAmount >= childStep to handle the partial last child correctly)
+            if (offsetInChild == 0 && copyAmount >= childStep)
+            {
+                CopyNode(internalNode.Children[i]!, array, currentDest, shift - Constants.RRB_BITS);
+            }
+            else
+            {
+                CopyRangeNode(internalNode.Children[i]!, array, offsetInChild, currentDest, copyAmount, shift - Constants.RRB_BITS);
+            }
+
+            currentDest += copyAmount;
+            remainingCount -= copyAmount;
+            
+            // After the first child, subsequent children start at 0
+            offsetInChild = 0; 
+        }
+    }
+}
 
     // Explicit interface implementations for mutation methods. They return void, and is thus 
     // incompatible with this.
@@ -319,38 +440,6 @@ public sealed partial class RrbList<T> where T : notnull
         }
     }
 
-    /**
-     * <summary>
-     *     Ensures the list has a valid Tail. If the Tail is empty, it promotes the
-     *     rightmost leaf of the tree to become the new Tail.
-     * </summary>
-     */
-    public RrbList<T> Normalize()
-    {
-        // If we already have a tail, or the tree is empty, we are fine.
-        if (TailLen > 0 || Root == null) return this;
-
-        // The tree is not null, but tail is empty. 
-        // We must pop the rightmost leaf from Root.
-        var (newRoot, newTail) = RrbAlgorithm.PromoteTail(Root, Shift, OwnerId.None);
-
-        var newShift = Shift;
-
-        // Height Reduction:
-        // If the new root has only 1 child, and it is an internal node (Shift > 0), 
-        // we can collapse the root.
-        // (Note: If newRoot is null, loop doesn't run, shift becomes 0 naturally)
-        while (newRoot != null &&
-               newShift > 0 &&
-               newRoot.Len == 1 &&
-               newRoot is InternalNode<T> inode)
-        {
-            newRoot = inode.Children[0];
-            newShift -= Constants.RRB_BITS;
-        }
-
-        return new RrbList<T>(newRoot, newTail, Count, newShift, newTail.Len);
-    }
 
 
     /**
@@ -358,63 +447,117 @@ public sealed partial class RrbList<T> where T : notnull
      *     Creates a slice of the list.
      * </summary>
      * <param name="start">The zero-based index at which to begin the slice.</param>
-     * <param name="count">The number of elements in the slice.</param>
+     * <param name="length">The number of elements in the slice.</param>
      * <returns>A new list that is a slice of the original list.</returns>
      */
-    public RrbList<T> Slice(int start, int count)
+    public RrbList<T> Slice(int start, int length)
+{
+    // 0. Validation
+    if (length <= 0) return Empty;
+    if (start < 0) start = 0;
+    if (start + length > this.Count) length = this.Count - start;
+    if (length == this.Count && start == 0) return this;
+
+    // 1. SCALA-STYLE OPTIMIZATION (Tiny Slice)
+    // If the result fits in a single leaf, just copy it.
+    // This beats ALL tree logic (40-50ns range).
+    if (length <= Constants.RRB_BRANCHING)
     {
-        if (start < 0 || count < 0 || start + count > Count)
-            throw new ArgumentOutOfRangeException();
-
-        if (count == 0) return Empty;
-        if (start == 0 && count == Count) return this;
-
-        // Right Slice (Tree size check)
-        var treeSize = Count - TailLen;
-        LeafNode<T> resultTail;
-        Node<T>? resultRoot;
-        var newEnd = start + count;
-        var resultShift = Shift;
-
-        if (newEnd > treeSize)
-        {
-            var itemsFromTail = newEnd - treeSize;
-            var newTailItems = new T[itemsFromTail];
-            Array.Copy(Tail.Items, 0, newTailItems, 0, itemsFromTail);
-            resultTail = new LeafNode<T>(newTailItems, itemsFromTail, OwnerId.None);
-            resultRoot = Root;
-        }
-        else
-        {
-            resultTail = LeafNode<T>.Empty;
-            resultRoot = RrbAlgorithm.Slice(Root!, newEnd, Shift);
-        }
-
-        // Left Slice
-        if (start > 0)
-        {
-            if (resultRoot != null)
-            {
-                if (start >= treeSize && newEnd > treeSize)
-                {
-                    var offsetInTail = start - treeSize;
-                    var tailSlice = new T[count];
-                    Array.Copy(Tail.Items, offsetInTail, tailSlice, 0, count);
-                    return new RrbList<T>(null, new LeafNode<T>(tailSlice, count, OwnerId.None), count, 0, count);
-                }
-
-                resultRoot = RrbAlgorithm.SliceLeft(resultRoot, start, resultShift);
-            }
-            else
-            {
-                var tailSlice = new T[count];
-                Array.Copy(resultTail.Items, start, tailSlice, 0, count);
-                resultTail = new LeafNode<T>(tailSlice, count, OwnerId.None);
-            }
-        }
-
-        return new RrbList<T>(resultRoot, resultTail, count, resultShift, resultTail.Len);//.Normalize();
+        var items = new T[length];
+        // Ensure you have a helper/iterator to copy range to array
+        this.CopyTo(start, items, 0, length); 
+        var smallTail = new LeafNode<T>(items, length, OwnerId.None);
+        
+        // Constructor: Root, Tail, Count, Shift, TailLength
+        return new RrbList<T>(null, smallTail, length, 0, length);
     }
+
+    // -----------------------------------------------------------
+    // STEP 1: CUT RIGHT (Establish End & Promote Tail)
+    // -----------------------------------------------------------
+    // We keep the range [0 ... start+length].
+    // buildLeft: true (We need the prefix)
+    // buildRight: false (Discard the excess)
+    var limit = start + length;
+    var (tempRoot, tempTail, _) = RrbAlgorithm.MasterSplit(
+         Root!, 
+         limit, 
+         Shift, 
+         OwnerId.None, 
+         buildLeft: true, 
+         buildRight: false);
+
+    // -----------------------------------------------------------
+    // STEP 2: CUT LEFT (Drop Start)
+    // -----------------------------------------------------------
+    // We now drop the first 'start' items from the result of Step 1.
+    
+    Node<T>? finalRoot = null;
+    LeafNode<T>? finalTail = tempTail; // Default to keeping the tail from Step 1
+    int finalShift = Shift;
+
+    // Calculate how many items are in the Tree portion vs the Tail portion
+    // Note: tempRoot might be null if Step 1 resulted in only a Tail
+    int rootSize = tempRoot != null ? RrbAlgorithm.GetTotalSize(tempRoot, Shift) : 0; 
+
+    // CASE A: The cut is inside the Tree (Root survives)
+    if (start < rootSize)
+    {
+        if (tempRoot != null)
+        {
+            // We use MasterSplit to "Drop" the prefix.
+            // buildLeft: false (Trash the start items)
+            // buildRight: true (Keep the rest of the tree)
+            // Note: splitIndex is 'start' because we are slicing the result of Step 1
+            var (_, _, rightResult) = RrbAlgorithm.MasterSplit(
+                 tempRoot, 
+                 start, 
+                 Shift, 
+                 OwnerId.None, 
+                 buildLeft: false, 
+                 buildRight: true);
+                 
+            finalRoot = rightResult;
+
+            // Squash Logic:
+            // If the tree became too tall for its contents (e.g. Root with 1 child), peel it.
+            // This prevents "tall narrow" trees after heavy slicing.
+            while (finalShift > 0 && finalRoot is InternalNode<T> internalNode && finalRoot.Len == 1)
+            {
+                finalRoot = internalNode.Children[0];
+                finalShift -= Constants.RRB_BITS;
+            }
+        }
+        // tempTail survives exactly as is.
+    }
+    // CASE B: The cut eats the entire Root and bites into the Tail
+    // (This case is technically unreachable if length > 32 due to logic, but handled for safety)
+    else
+    {
+        // The Root is gone.
+        finalRoot = null;
+        finalShift = 0; 
+        
+        int offsetInTail = start - rootSize;
+        
+        // Slice the tail if necessary
+        if (offsetInTail > 0 && tempTail != null)
+        {
+            var newItems = new T[length];
+            Array.Copy(tempTail.Items, offsetInTail, newItems, 0, length);
+            finalTail = new LeafNode<T>(newItems, length, OwnerId.None);
+        }
+    }
+
+    // Safety fallback
+    if (finalRoot == null && finalTail == null) return Empty;
+    if (finalRoot == null) finalShift = 0;
+    if (finalTail == null) finalTail = LeafNode<T>.Empty;
+
+
+    // Constructor: Root, Tail, Count, Shift, TailLength
+    return new RrbList<T>(finalRoot, finalTail!, length, finalShift, finalTail!.Len);
+}
 
     /**
      * <summary>
@@ -454,8 +597,6 @@ public sealed partial class RrbList<T> where T : notnull
             Array.Copy(other.Tail.Items, spaceInThis, newTailItems, 0, overflow);
             var newActiveTail = new LeafNode<T>(newTailItems, overflow, OwnerId.None);
 
-            var treeCountAfterPush = Count - TailLen + Constants.RRB_BRANCHING;
-
             var newShift = Shift;
             var newRoot = RrbAlgorithm.AppendLeafToTree(Root, newLeaf, ref newShift, OwnerId.None);
 
@@ -473,12 +614,7 @@ public sealed partial class RrbList<T> where T : notnull
         return new RrbList<T>(combinedTree, other.Tail, Count + other.Count, combinedShift, other.TailLen);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetHeight(Node<T> node)
-    {
-        if (node is LeafNode<T>) return 0;
-        return 1 + GetHeight(((InternalNode<T>)node).Children[0]!);
-    }
+
 
 
     /**
@@ -489,53 +625,101 @@ public sealed partial class RrbList<T> where T : notnull
      * <returns>A tuple containing the left and right parts of the split list.</returns>
      */
     public (RrbList<T> Left, RrbList<T> Right) Split(int index)
+{
+    if (index <= 0) return (Empty, this);
+    if (index >= Count) return (this, Empty);
+
+    int rootSize = Count - TailLen;
+
+    // ---------------------------------------------------------
+    // CASE A: Split happens inside the Tail
+    // ---------------------------------------------------------
+    if (index >= rootSize)
     {
-        if (index < 0 || index > Count) throw new IndexOutOfRangeException();
-        if (index == 0) return (Empty, this);
-        if (index == Count) return (this, Empty);
+        // where in the tail to split
+        int tailSplitIdx = index - rootSize;
 
+        // Left Tail
+        var leftTailItems = new T[tailSplitIdx];
+        Array.Copy(Tail.Items, 0, leftTailItems, 0, tailSplitIdx);
+        var leftTail1 = new LeafNode<T>(leftTailItems, tailSplitIdx, OwnerId.None);
 
-        // Simple case: Split is inside the Tail
-        var treeCount = Count - TailLen;
-        if (index >= treeCount)
+        // Right Tail 
+        int rightLen = TailLen - tailSplitIdx;
+        var rightTailItems = new T[rightLen];
+        Array.Copy(Tail.Items, tailSplitIdx, rightTailItems, 0, rightLen);
+        var rightTail = new LeafNode<T>(rightTailItems, rightLen, OwnerId.None);
+
+        // 2. Construct Lists
+        // Left: Keeps the original Root and Shift, gets the new Left Tail.
+        var left = new RrbList<T>(Root, leftTail1, index, Shift, leftTail1.Len);
+
+        // Right: Has no root, contains only the Right Tail.
+        var right = new RrbList<T>(null, rightTail, rightLen, 0, rightTail.Len);
+
+        return (left, right);
+    }
+
+    // ---------------------------------------------------------
+    // CASE B: Split happens inside the Tree
+    // ---------------------------------------------------------
+    // We split the Root. The 'Tail' of the left side will be promoted from the split point.
+    // The 'Tail' of the right side will be the original Tail of this list.
+
+    var (leftRoot, leftTail, rightRoot) = RrbAlgorithm.MasterSplit(
+        Root!, 
+        index, 
+        Shift, 
+        OwnerId.None, 
+        buildLeft: true, 
+        buildRight: true);
+
+    // 1. Construct Left List
+    // We must squash the Left Root to find the correct shift. At this point we could have 4 levels of 1 Child.
+    // Squash fixes that
+    var (finalLeftRoot, leftShift) = Squash(leftRoot, Shift);
+  
+    var leftList = new RrbList<T>(
+        finalLeftRoot, 
+        leftTail,      // Promoted from inside the tree
+        index, 
+        leftShift, 
+        leftTail.Len);
+
+    // 2. Construct Right List
+    // The Right Root forms the tree part. The Original Tail is appended.
+    var (finalRightRoot, rightShift) = Squash(rightRoot, Shift);
+    var rightCount = Count - index;
+
+    var rightList = new RrbList<T>(
+        finalRightRoot, 
+        Tail,           // The original tail survives
+        rightCount, 
+        rightShift, 
+        TailLen);       // The original tail length
+
+    return (leftList, rightList);
+}
+    // Reduces the height if the root has only 1 child.
+    private static (Node<T>? Node, int Shift) Squash(Node<T>? node, int shift)
+    {
+        if (node == null) return (null, 0);
+
+        // While we are an InternalNode with exactly 1 child, peel the layer.
+        while (shift > 0 && node is InternalNode<T> internalNode && internalNode.Len == 1)
         {
-            // Tree is fully in Left. Tail is split.
-            var splitInTail = index - treeCount;
-            var (tailL, tailR) = SplitTail(Tail, splitInTail);
-
-            var left = new RrbList<T>(Root, tailL, index, Shift, tailL.Len);
-            var right = new RrbList<T>(null, tailR, Count - index, 0, tailR.Len);
-            return (left, right);
+            node = internalNode.Children[0];
+            shift -= Constants.RRB_BITS;
         }
+    
+        // If we peeled all the way down to a Leaf but shift is still > 0 
+        // (technically shouldn't happen if logic is correct, but safe guard):
+        if (node is LeafNode<T>) shift = 0;
 
-        // Sad case: Split is inside the Tree
-        // 1. Split the Tree
-        var (treeL, treeR) = RrbAlgorithm.Split(Root!, index, Shift, OwnerId.None);
-
-        // Left List gets treeL + empty tail
-        // Simplest valid state: Left has empty tail.
-        var leftList = new RrbList<T>(treeL, LeafNode<T>.Empty, index, Shift, 0);//.Normalize();
-
-        // Right List gets treeR + original Tail
-        var rightList = new RrbList<T>(treeR, Tail, Count - index, Shift, TailLen);
-
-        return (leftList, rightList);
+        return (node, shift);
     }
-
-    private (LeafNode<T>, LeafNode<T>) SplitTail(LeafNode<T> tail, int idx)
-    {
-        var lArr = new T[idx];
-        Array.Copy(tail.Items, 0, lArr, 0, idx);
-        var lNode = new LeafNode<T>(lArr, idx, OwnerId.None);
-
-        var rLen = tail.Len - idx;
-        var rArr = new T[rLen];
-        Array.Copy(tail.Items, idx, rArr, 0, rLen);
-        var rNode = new LeafNode<T>(rArr, rLen, OwnerId.None);
-
-        return (lNode, rNode);
-    }
-
+    
+    
     /**
      * <summary>
      *     Inserts item at index.
@@ -839,8 +1023,12 @@ public sealed partial class RrbList<T> where T : notnull
         // Also verify that the size of the tree matches the Count - TailLen
         var countedSize = CountNode(Root, Shift);
         if (countedSize != Count - TailLen)
+        {
+            Console.WriteLine("BreakPoint");
+            
             throw new Exception(
                 $"Integrity Error: Root tracks {Count - TailLen} items, but traversal found {countedSize}.");
+        }
     }
 
     private int CountNode(Node<T> node, int shift)
@@ -887,8 +1075,11 @@ public sealed partial class RrbList<T> where T : notnull
                 var capacity = 1 << shift;
                 if (i < inode.Len - 1)
                     if (childSize != capacity)
+                    {
+                        Console.WriteLine("BreakPoint!");
                         throw new Exception(
                             $"Integrity Error: Balanced node has non-full child at index {i} (Size {childSize}/{capacity})");
+                    }
             }
         }
     }

@@ -13,7 +13,7 @@ public class RrbFuzzTest
     private const int Iterations = 100_000;
     private const int MaxPoolSize = 20;
     private const int MaxInitialSize = 10000;
-    private const int Seed = 41; // Fixed seed for reproducibility
+    private static int Seed = 10390883; //Environment.TickCount; // Seeds that caused issues: 42, 10390883
 
     private readonly Random _rng = new Random(Seed);
     
@@ -43,7 +43,7 @@ public class RrbFuzzTest
             {
                 if (roll < 0.3) // 30% Split
                 {
-                   // Console.WriteLine("Split");
+                   //Console.WriteLine("Split");
                     DoSplit();
                 }
                 else if (roll < 0.6 && _pool.Count >= 2) // 30% Merge (needs 2 items)
@@ -87,7 +87,6 @@ public class RrbFuzzTest
         var expResult = new List<int>(exp1);
         expResult.AddRange(exp2);
         
-        Console.WriteLine(rrb1.ToString());
         // 3. Verify
         Verify(rrbResult, expResult, "Merge");
 
@@ -107,6 +106,11 @@ public class RrbFuzzTest
         int splitIndex = _rng.Next(rrb.Count + 1); // 0 to Count inclusive
 
         // 1. Perform RRB Split
+        Console.WriteLine(splitIndex);
+        if (splitIndex == 16069)
+        {
+            Console.WriteLine("DB");
+        }
         var (leftRrb, rightRrb) = rrb.Split(splitIndex);
 
         // 2. Perform Reference Split
