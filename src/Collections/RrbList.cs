@@ -11,6 +11,7 @@
 
 
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Collections;
@@ -361,6 +362,11 @@ public sealed partial class RrbList<T> where T : notnull
      * <param name="count">The number of elements in the slice.</param>
      * <returns>A new list that is a slice of the original list.</returns>
      */
+   /**
+     * <summary>
+     * Creates a slice of the list.
+     * </summary>
+     */
     public RrbList<T> Slice(int start, int count)
     {
         if (start < 0 || count < 0 || start + count > Count)
@@ -369,51 +375,95 @@ public sealed partial class RrbList<T> where T : notnull
         if (count == 0) return Empty;
         if (start == 0 && count == Count) return this;
 
-        // Right Slice (Tree size check)
-        var treeSize = Count - TailLen;
-        LeafNode<T> resultTail;
-        Node<T>? resultRoot;
+        // --- 1. Right Edge Processing (Slicing the end) ---
+        // This calculates the new 'end' relative to the start of the list.
         var newEnd = start + count;
+        var currentTreeSize = Count - TailLen;
+
+        Node<T>? resultRoot;
+        LeafNode<T> resultTail;
         var resultShift = Shift;
+        var resultCount = count; // We might update this if we split the tree
 
-        if (newEnd > treeSize)
+        // Case A: Slice falls inside the existing Tail
+        if (newEnd > currentTreeSize)
         {
-            var itemsFromTail = newEnd - treeSize;
-            var newTailItems = new T[itemsFromTail];
-            Array.Copy(Tail.Items, 0, newTailItems, 0, itemsFromTail);
-            resultTail = new LeafNode<T>(newTailItems, itemsFromTail, OwnerId.None);
-            resultRoot = Root;
-        }
-        else
-        {
-            resultTail = LeafNode<T>.Empty;
-            resultRoot = RrbAlgorithm.Slice(Root!, newEnd, Shift);
-        }
-
-        // Left Slice
-        if (start > 0)
-        {
-            if (resultRoot != null)
+            // We just slice the current tail. The tree is untouched.
+            var idxInTail = newEnd - currentTreeSize;
+            
+            // Optimization: If taking the whole tail (up to the cut)
+            if (idxInTail == TailLen) 
             {
-                if (start >= treeSize && newEnd > treeSize)
-                {
-                    var offsetInTail = start - treeSize;
-                    var tailSlice = new T[count];
-                    Array.Copy(Tail.Items, offsetInTail, tailSlice, 0, count);
-                    return new RrbList<T>(null, new LeafNode<T>(tailSlice, count, OwnerId.None), count, 0, count);
-                }
-
-                resultRoot = RrbAlgorithm.SliceLeft(resultRoot, start, resultShift);
+                resultTail = Tail;
             }
             else
             {
-                var tailSlice = new T[count];
-                Array.Copy(resultTail.Items, start, tailSlice, 0, count);
-                resultTail = new LeafNode<T>(tailSlice, count, OwnerId.None);
+                // Simple array copy for the tail slice
+                var newTailItems = new T[idxInTail];
+                Array.Copy(Tail.Items, 0, newTailItems, 0, idxInTail);
+                resultTail = new LeafNode<T>(newTailItems, idxInTail, OwnerId.None);
+            }
+            resultRoot = Root;
+            
+            // NOTE: We don't promote here because the prompt implies
+            // "any right slice [that goes into the tree]". 
+            // If we are in the tail, we just take the subset of the tail.
+        }
+        // Case B: Slice cuts into the Tree
+        else
+        {
+            // This is the Magic: Slice and fetch Tail in ONE pass.
+            // newEnd is exactly how many items we want from the tree.
+            (resultRoot, resultTail) = RrbAlgorithm.SliceRightAndPromote(Root!, newEnd, Shift);
+            
+            // Logic Check: 
+            // If resultTail is EMPTY, it means the slice ended on a boundary (Full Leaf).
+            // That full leaf is still inside resultRoot.
+            // If resultTail is NOT EMPTY, it was < 32, so it was popped out of resultRoot.
+        }
+
+        // --- 2. Left Edge Processing (Slicing the start) ---
+        if (start > 0)
+        {
+            // If we have a tree, slice it
+            if (resultRoot != null)
+            {
+                // Optimization: If we sliced the tree so much that 'start' is now
+                // past the new tree size (e.g. we only have the promoted tail left),
+                // we handle that edge case.
+                
+                // However, standard logic handles it:
+                // SliceLeftRec will drop 'start' items. 
+                resultRoot = RrbAlgorithm.SliceLeft(resultRoot, start, resultShift);
+                
+                // Squash: If the root became a single child due to slicing, flatten it.
+                // This is cheap and keeps the tree healthy.
+                while (resultRoot is InternalNode<T> inode && inode.Len == 1 && resultShift > 0)
+                {
+                    resultRoot = inode.Children[0];
+                    resultShift -= Constants.RRB_BITS;
+                }
+            }
+            else
+            {
+                // We only have a tail (e.g. the original tree was small or slice was small)
+                // We slice the tail relative to 'start'.
+                // Since resultRoot is null, 'start' must be relative to the tail's start?
+                // No, 'start' is absolute.
+                // But if resultRoot is null, it means newEnd was small ( < 32?).
+                
+                // Actually, if resultRoot is null, SliceRightPromote returned (null, leaf).
+                // This means the TOTAL items we have is resultTail.Len.
+                // So we slice that leaf.
+                
+                var newLen = resultTail.Len - start;
+                var newItems = new T[newLen];
+                Array.Copy(resultTail.Items, start, newItems, 0, newLen);
+                resultTail = new LeafNode<T>(newItems, newLen, OwnerId.None);
             }
         }
 
-        return new RrbList<T>(resultRoot, resultTail, count, resultShift, resultTail.Len);//.Normalize();
+        return new RrbList<T>(resultRoot, resultTail, count, resultShift, resultTail.Len);
     }
 
     /**
