@@ -57,7 +57,7 @@ http://hypirion.com/thesis
 ```
 
 RrbList efficiently supports split, slice, merge, indexing and index based updates. Adding to that, the interfaces
-IEnumerable and IImmutableList are implemented.
+IEnumerable and IImmutableList are implemented. 
 
 # Things that have to be made better before a stable release
 
