@@ -155,7 +155,7 @@ List beats everything with regards to adding to the end of the sequence. Hands d
 
 ### Indexing
 
-This benchmark indexes into the data at three different points. List is yet again the fastest. RrbList is slightly faster than immutableList. I have hade a pretty big regression here with regard to the dense list. The proper numbers for dense lists should be something closer to 2.7, 3.5 and 5ns. 
+This benchmark indexes into the data at three different points. List is yet again the fastest. RrbList is slightly faster than immutableList. I have hade a pretty big regression here with regard to the dense list. The proper numbers for dense lists should be something closer to 2.7, 3.5 and 5ns. (This is fixed in the main branch since some time.) 
 
 
 | Method                     | InvocationCount | UnrollFactor | N      | Mean            | Allocated |
