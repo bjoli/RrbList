@@ -75,6 +75,7 @@ IEnumerable and IImmutableList are implemented.
 * Clean up all the different ways to push a tail. (DONE!)
 * If the builder har a fat tail, we would save a lot of pointer chasing by making our own 32-way node and insert that
   as-is.
+* Fix Split so that it is fast.
 
 # API docs
 
@@ -111,7 +112,7 @@ tail.
 # Potential speedups
 
 I do think there are some potential speedups that I see as someone who has never written anything serious in C# before.
-A lot of the casting is done in places where it would make sense to do it using Unsafe.As.
+We could try to use arraypools to avoid allocations in some places. Split/Slice could probably be a lot faster. Merge could probably be faster, but I am not touching that with a 5 foot pole. Not yet anyway. Then there are some simple things. Don't rely on foreach to search is a simple one. 
 
 # Benchmarks
 
