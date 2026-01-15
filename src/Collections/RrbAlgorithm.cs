@@ -140,8 +140,6 @@ public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShi
         if (leftShift == 0)
         {
             // Leaf Level Merge
-            var leftLeaf = AsLeaf(leftNode);
-            var rightLeaf = AsLeaf(rightNode);
            
             newShift = Constants.RRB_BITS;
             // Create parent with 2 children
