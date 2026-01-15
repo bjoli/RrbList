@@ -1092,7 +1092,7 @@ private static Node<T> Rebalance<T>(
     // This is a method to get the child index. If the node is dense it does a regular dense search
     // if it is relaxed, it uses AVX to search 8 elements at a time.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (int childIndex, int relativeIndex) GetChildIndexAvx<T>(InternalNode<T> node, int index,
+    internal static (int childIndex, int relativeIndex) GetChildIndexAvx<T>(InternalNode<T> node, int index,
         int shift)
     {
         // Dense / Balanced Path (No SizeTable)

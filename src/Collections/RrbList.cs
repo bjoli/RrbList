@@ -126,6 +126,102 @@ public sealed partial class RrbList<T> where T : notnull
             Array.Copy(Tail.Items, 0, array, tailDest, TailLen);
         }
     }
+    
+    /**
+     * <summary>
+     * Copies a range of elements from the RrbList to a compatible one-dimensional array.
+     * </summary>
+     */
+    public void CopyTo(int sourceIndex, T[] destination, int destinationIndex, int count)
+    {
+        if (sourceIndex < 0 || sourceIndex > Count) throw new ArgumentOutOfRangeException(nameof(sourceIndex));
+        if (destination == null) throw new ArgumentNullException(nameof(destination));
+        if (destinationIndex < 0) throw new ArgumentOutOfRangeException(nameof(destinationIndex));
+        if (destination.Length - destinationIndex < count) throw new ArgumentException("Destination array is too small.");
+        if (count == 0) return;
+
+        var tailOffset = Count - TailLen;
+
+        // 1. Copy from Tree (if the range starts before the tail)
+        if (sourceIndex < tailOffset)
+        {
+            var itemsFromTree = Math.Min(count, tailOffset - sourceIndex);
+            
+            // We use a helper similar to CopyNode but that supports a start index and count limit.
+            // Since we don't have a specific random-access CopyNode, we rely on the indexer or a specialized traversal.
+            // For simplicity and correctness with existing helpers, we can iterate or implement a scoped copy.
+            // Given the constraints, a manual loop using the indexer is O(N*LogN) but effectively O(N) due to small depth.
+            // A more optimized approach is to implement CopyRange on Node<T>, but using the indexer is safe and relatively fast.
+            
+            // However, since you asked for this as a prerequisite for optimization, let's implement
+            // an efficient CopyRangeNode helper below to avoid O(N log N).
+            
+            if (Root != null) 
+                CopyRangeNode(Root, Shift, sourceIndex, destination, destinationIndex, itemsFromTree);
+
+            destinationIndex += itemsFromTree;
+            count -= itemsFromTree;
+            sourceIndex += itemsFromTree; // Should equal tailOffset now
+        }
+
+        // 2. Copy from Tail (if there are remaining items to copy)
+        if (count > 0)
+        {
+            var idxInTail = sourceIndex - tailOffset;
+            Array.Copy(Tail.Items, idxInTail, destination, destinationIndex, count);
+        }
+    }
+
+    private static void CopyRangeNode(Node<T> node, int shift, int offsetInNode, T[] dest, int destIdx, int count)
+    {
+        // Base Case: Leaf
+        if (shift == 0)
+        {
+            var leaf = RrbAlgorithm.AsLeaf(node);
+            Array.Copy(leaf.Items, offsetInNode, dest, destIdx, count);
+            return;
+        }
+
+        // Recursive Step: Internal
+        var internalNode = RrbAlgorithm.AsInternal(node);
+        
+        // Find the first child containing our offset
+        var (childIdx, subIdx) = RrbAlgorithm.GetChildIndexAvx(internalNode, offsetInNode, shift);
+
+        while (count > 0 && childIdx < internalNode.Len)
+        {
+            var child = internalNode.Children[childIdx]!;
+            
+            // Calculate how many items this specific child has available to give us
+            // (Total items in child) - (Where we are starting inside it)
+            int childSize;
+            if (internalNode.SizeTable != null)
+            {
+                var prev = childIdx > 0 ? internalNode.SizeTable[childIdx - 1] : 0;
+                childSize = internalNode.SizeTable[childIdx] - prev;
+            }
+            else
+            {
+                // Dense: block size, unless it's the very last child (which might be partial)
+                if (childIdx == internalNode.Len - 1)
+                    childSize = RrbAlgorithm.GetTotalSize(child, shift - Constants.RRB_BITS);
+                else
+                    childSize = 1 << shift;
+            }
+
+            var availableInChild = childSize - subIdx;
+            var toCopy = Math.Min(count, availableInChild);
+
+            CopyRangeNode(child, shift - Constants.RRB_BITS, subIdx, dest, destIdx, toCopy);
+
+            count -= toCopy;
+            destIdx += toCopy;
+            
+            // Move to next child
+            childIdx++;
+            subIdx = 0; // Future children start at 0
+        }
+    }
 
     // Explicit interface implementations for mutation methods. They return void, and is thus 
     // incompatible with this.
@@ -336,6 +432,26 @@ public sealed partial class RrbList<T> where T : notnull
 
         if (count == 0) return Empty;
         if (start == 0 && count == Count) return this;
+
+        if (count <= Constants.RRB_BRANCHING * 2)
+        {
+            if (count <= Constants.RRB_BRANCHING)
+            {
+                var newItems = new T[count];
+                CopyTo(start, newItems, 0, count);
+                return new RrbList<T>(null, new LeafNode<T>(newItems, count, OwnerId.None), count, 0, count);
+            }
+
+            var newRootItems = new T[Constants.RRB_BRANCHING];
+            count -= Constants.RRB_BRANCHING;
+            var newTailItems = new T[count];
+            CopyTo(start, newRootItems, 0, Constants.RRB_BRANCHING);
+            CopyTo(start + Constants.RRB_BRANCHING, newTailItems, 0, count);
+            var newTail = new LeafNode<T>(newTailItems, count, OwnerId.None);
+            var newRoot = new LeafNode<T>(newRootItems, Constants.RRB_BRANCHING, OwnerId.None);
+
+            return new RrbList<T>(newRoot, newTail, Constants.RRB_BRANCHING + count, 0, count);
+        }
 
         // --- 1. Right Edge Processing (Slicing the end) ---
         var newEnd = start + count;
