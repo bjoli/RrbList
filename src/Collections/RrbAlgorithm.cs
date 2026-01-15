@@ -678,10 +678,32 @@ private static Node<T> Rebalance<T>(
             {
                 // Create table from balanced assumptions
                 var childCapacity = 1 << shift;
+
                 for (var i = 0; i < remainingChildren; i++)
                 {
-                    // Original cumulative size was (subidx + i + 1) * capacity
-                    var oldCumulative = (long)(subidx + i + 1) * childCapacity;
+                    long oldCumulative;
+
+                    // Check if we are at the very last child of the ORIGINAL node.
+                    // The index in the original internalNode.Children is (subidx + i).
+                    if (subidx + i == internalNode.Len - 1)
+                    {
+                        // The last child of a dense node is the ONLY one that might not be full.
+                        // We must calculate the actual total size of the original node.
+            
+                        // 1. Sum of all preceding full siblings
+                        var fullChildrenSize = (long)(internalNode.Len - 1) * childCapacity;
+            
+                        // 2. Actual size of the last child (use CountTree to traverse down)
+                        var lastChildSize = CountTree(internalNode.Children[internalNode.Len - 1]!, shift - Constants.RRB_BITS);
+            
+                        oldCumulative = fullChildrenSize + lastChildSize;
+                    }
+                    else
+                    {
+                        // Any child that is NOT the last child in a dense node is guaranteed full.
+                        oldCumulative = (long)(subidx + i + 1) * childCapacity;
+                    }
+
                     newSizeTable[i] = (int)(oldCumulative - toDrop);
                 }
             }
