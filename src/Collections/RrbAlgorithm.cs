@@ -309,6 +309,81 @@ internal static class RrbAlgorithm
         parent.Children[1] = newRight;
         return SetSizes(parent, newShift);
     }
+//     This is a _much_ faster rebalance that skips the whole concat plan. 
+//     the resulting tree is less balanced, but merging takes about half as long.
+//     
+//     
+//     private static Node<T> Rebalance<T>(
+//     InternalNode<T>? left,
+//     Node<T> center,
+//     InternalNode<T>? right,
+//     int shift,
+//     int centerShift,
+//     out int newShift)
+// {
+//     // 1. Collect all children into a buffer (Same as before)
+//     // Note: We are collecting Node<T> references. We are NOT looking inside them.
+//     var allChildren = new Node<T>[Constants.RRB_BRANCHING * 2 + 1];
+//     var count = 0;
+//
+//     if (left != null)
+//         for (var i = 0; i < left.Len - 1; i++) allChildren[count++] = left.Children[i]!;
+//
+//     if (centerShift == shift)
+//     {
+//         var cInternal = (InternalNode<T>)center;
+//         for (var i = 0; i < cInternal.Len; i++) allChildren[count++] = cInternal.Children[i]!;
+//     }
+//     else
+//     {
+//         allChildren[count++] = center;
+//     }
+//
+//     if (right != null)
+//         for (var i = 1; i < right.Len; i++) allChildren[count++] = right.Children[i]!;
+//
+//     // --- OPTIMIZATION STARTS HERE
+//
+//     // Case A: Everything fits in one node (<= 32 children)
+//     if (count <= Constants.RRB_BRANCHING)
+//     {
+//         var newChildren = new Node<T>?[count];
+//         Array.Copy(allChildren, newChildren, count);
+//         
+//         // We must calculate sizes because we just glued arbitrary nodes together.
+//         // But SetSizes only scans the 'count' children, it doesn't rebuild them.
+//         var newNode = new InternalNode<T>(newChildren, null, count, OwnerId.None);
+//         newShift = shift;
+//         return SetSizes(newNode, shift);
+//     }
+//
+//     // Case B: Too big, split into two nodes.
+//     // STRATEGY: Do not redistribute. Just cut in the middle.
+//     // This leaves the Left node fully packed (32) and the Right node with the remainder.
+//     // This preserves the "Dense Invariant" for the Left node!
+//     
+//     var leftLen = Constants.RRB_BRANCHING;
+//     var rightLen = count - Constants.RRB_BRANCHING;
+//
+//     var leftChildren = new Node<T>?[leftLen];
+//     var rightChildren = new Node<T>?[rightLen];
+//
+//     Array.Copy(allChildren, 0, leftChildren, 0, leftLen);
+//     Array.Copy(allChildren, leftLen, rightChildren, 0, rightLen);
+//
+//     // Create the two new children
+//     var newLeft = SetSizes(new InternalNode<T>(leftChildren, null, leftLen, OwnerId.None), shift);
+//     var newRight = SetSizes(new InternalNode<T>(rightChildren, null, rightLen, OwnerId.None), shift);
+//
+//     // Create the new parent
+//     newShift = shift + Constants.RRB_BITS;
+//     var parent = new InternalNode<T>(2, OwnerId.None);
+//     parent.Children[0] = newLeft;
+//     parent.Children[1] = newRight;
+//     
+//     // The parent is obviously relaxed/partial, so we set its sizes.
+//     return SetSizes(parent, newShift);
+// }
 
     private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, Span<int> plan, int slen, int shift)
     {
@@ -420,7 +495,6 @@ internal static class RrbAlgorithm
         // This enables the fast-path bit-shift indexing in RrbList.
         return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, OwnerId.None);
     }
-
 
     private static int CountTree<T>(Node<T> node, int shift)
     {
@@ -1341,7 +1415,7 @@ internal static class RrbAlgorithm
                 Array.Copy(internalNode.Children, childIndex + 1, newChildren, childIndex + 2,
                     internalNode.Len - (childIndex + 1));
 
-            int[]? newSizeTable = null;
+            int[]? newSizeTable;
 
             if (internalNode.SizeTable != null)
             {
