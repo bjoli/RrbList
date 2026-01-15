@@ -165,6 +165,7 @@ public class RrbListBenchmarks
     public void Insert_List()
     {
         _list.Insert(_middleIndex, 999);
+        _list.RemoveAt(_list.Count-1);
         //Cleanup usually required if you want to keep size stable, but BDN handles invoke count
     }
 

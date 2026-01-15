@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
-public struct RrbEnumerator<T> : IEnumerator<T>
+public struct RrbEnumerator<T> : IEnumerator<T> where T : notnull
 {
     private readonly RrbList<T> _list;
     private readonly int _endIndex; // The exclusive upper bound
@@ -60,7 +60,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         get => _currentItems![_leafIndex];
     }
 
-    object IEnumerator.Current => Current!;
+    object IEnumerator.Current => Current;
 
     // Hot Path is 100% IDENTICAL to the previous version
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

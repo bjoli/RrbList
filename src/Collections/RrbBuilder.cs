@@ -6,7 +6,7 @@ namespace Collections;
  * </summary>
  * <typeparam name="T">The type of elements in the list.</typeparam>
  */
-public class RrbBuilder<T>
+public class RrbBuilder<T> where T : notnull
 {
     private readonly T[] _tail;
 

@@ -71,18 +71,17 @@ public sealed partial class RrbList<T>
      *     High-performance internal iterator.
      *     Returns false if the iteration was terminated early by the predicate.
      * </summary>
-     * <summary>
-     *     <param name="action">A function that returns true to continue, or false to break.</param>
-     *     <example>
-     *         list.Iter(item => {
-     *         if (item > 100)
-     *         {
-     *         Console.WriteLine("Found it!");
-     *         return false; // Break
-     *         }
-     *         return true; // Continue
-     *         });
-     *     </example>
+     * <param name="action">A function that returns true to continue, or false to break.</param>
+     * <example>
+     *     list.Iter(item => {
+     *     if (item > 100)
+     *     {
+     *     Console.WriteLine("Found it!");
+     *     return false; // Break
+     *     }
+     *     return true; // Continue
+     *     });
+     * </example>
      */
     public bool Iter(Func<T, bool> action)
     {
