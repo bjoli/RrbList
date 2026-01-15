@@ -15,7 +15,7 @@ using System.Text;
 
 namespace Collections;
 
-public sealed partial class RrbList<T> : ICollection<T>, IReadOnlyList<T> where T : notnull
+public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 {
     /**
      * <summary>
@@ -605,13 +605,6 @@ public sealed partial class RrbList<T> : ICollection<T>, IReadOnlyList<T> where 
 
         // other.Tail is already T[], just pass it through
         return new RrbList<T>(combinedTree, other.Tail, Count + other.Count, combinedShift, other.TailLen);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetHeight(Node<T> node)
-    {
-        if (node is LeafNode<T>) return 0;
-        return 1 + GetHeight(((InternalNode<T>)node).Children[0]!);
     }
 
 
