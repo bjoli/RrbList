@@ -54,7 +54,7 @@ public class RrbBuilder<T>
         _tailLen = list.TailLen;
         _tailCapacity = tailCapacity;
         _tail = new T[_tailCapacity];
-        list.Tail.Items.CopyTo(_tail, 0);
+        list.Tail.CopyTo(_tail, 0);
     }
     
     
@@ -197,16 +197,16 @@ public class RrbBuilder<T>
         }
 
         // Create final tail from remainder
-        LeafNode<T> finalTail;
+        T[] finalTail;
         if (remainder > 0)
         {
             var tailItems = new T[remainder];
             Array.Copy(_tail, fullChunks * Constants.RRB_BRANCHING, tailItems, 0, remainder);
-            finalTail = new LeafNode<T>(tailItems, remainder, OwnerId.None);
+            finalTail = tailItems;
         }
         else
         {
-            finalTail = LeafNode<T>.Empty;
+            finalTail = [];
         }
 
         // 3. Freeze Root

@@ -35,7 +35,7 @@ public sealed partial class RrbList<T>
         // Fold over the tail part
         if (TailLen > 0)
         {
-            var items = Tail.Items;
+            var items = Tail;
             for (var i = 0; i < TailLen; i++) state = func(state, items[i]);
         }
 
@@ -100,7 +100,7 @@ public sealed partial class RrbList<T>
         // 2. Iterate Tail
         if (TailLen > 0)
         {
-            var items = Tail.Items;
+            var items = Tail;
             // Hoist the length check for speed
             int len = TailLen; 
             for (int i = 0; i < len; i++)
@@ -184,7 +184,7 @@ public sealed partial class RrbList<T>
         // Traverse the Tail
         if (count > 0 && TailLen > 0)
         {
-            var items = Tail.Items;
+            var items = Tail;
             
             var end = index + count;
             for (var i = index; i < end; i++)

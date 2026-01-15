@@ -95,7 +95,7 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         if (_totalIndex >= tailOffset)
         {
             var tail = _list.Tail;
-            _currentItems = tail.Items;
+            _currentItems = tail;
             // In reverse, leafIndex is simply the offset
             _leafIndex = _totalIndex - tailOffset;
             return true;

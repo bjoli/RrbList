@@ -88,14 +88,14 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         if (_totalIndex >= tailOffset)
         {
             var tail = _list.Tail;
-            _currentItems = tail.Items;
+            _currentItems = tail;
 
             // Calculate where we are in the tail
             _leafIndex = _totalIndex - tailOffset;
 
             // CAP THE LENGTH: Stop at tail end OR range end
             var tailEnd = _endIndex - tailOffset;
-            _leafLen = Math.Min(tail.Len, tailEnd);
+            _leafLen = Math.Min(tail.Length, tailEnd);
 
             return true;
         }

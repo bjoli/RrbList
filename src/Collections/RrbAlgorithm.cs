@@ -711,59 +711,7 @@ private static Node<T> Rebalance<T>(
 
         return new InternalNode<T>(newChildren, newSizeTable, remainingChildren, OwnerId.None);
     }
-
-
-    public static void Push<T>(
-        ref Node<T>? root,
-        ref LeafNode<T> tail,
-        T element,
-        ref int cnt,
-        ref int tailLen,
-        ref int shift,
-        OwnerId token)
-    {
-        //  Try to fit into the active tail buffer
-        if (tailLen < Constants.RRB_BRANCHING)
-        {
-            tail = tail.EnsureEditable(token);
-
-            // If persistent and full-width (from previous transient owner?), ensure capacity
-            // (This happens if a transient node was frozen but kept its 32-size array)
-            if (token.IsNone && tail.Items.Length == tailLen)
-            {
-                var newItems = new T[tailLen + 1];
-                Array.Copy(tail.Items, newItems, tailLen);
-                tail = new LeafNode<T>(newItems, tailLen, OwnerId.None);
-            }
-
-            tail.Items[tailLen] = element;
-            tail.Len++;
-            tailLen++;
-            cnt++;
-            return;
-        }
-
-        // Tail is full. 
-        // We must promote the 'oldTail' into the tree and start a new tail.
-        var oldTailToPush = tail;
-
-        // Create the new active tail with the new element
-        var newTail = new LeafNode<T>(1, token);
-        newTail.Items[0] = element;
-
-        // Update references
-        tail = newTail;
-        tailLen = 1;
-        cnt++; // Total count increases by 1 (the new element)
-
-        // Delegate Tree Insertion
-        // AppendLeafToTree handles:
-        // - Null Root
-        // - Root Growth (Leaf -> Internal)
-        // - Tree Height Growth (Overflow)
-        root = AppendLeafToTree(root, oldTailToPush, ref shift, token);
-    }
-
+    
 
 // Returns the updated node if the tail could be inserted/merged.
 // Returns NULL if the node is physically full and the tail could not be accepted.
