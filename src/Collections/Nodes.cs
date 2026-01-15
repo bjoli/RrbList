@@ -133,23 +133,51 @@ internal sealed class InternalNode<T> : Node<T>
 
     // 'ensure_internal_editable' in c-rrb in rrb_transients.h
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public InternalNode<T> EnsureEditable(OwnerId callerId)
+
+    public InternalNode<T> EnsureEditable(OwnerId token, bool expand = false)
     {
-        if (Owner == callerId) return this;
+        // 1. MATCH: Already mutable and owned by us.
+        // INVARIANT: If Owner is set, We know capacity is 32. Party all night
+        if (token == this.Owner && token != OwnerId.None)
+            return this;
 
-        var newCap = !callerId.IsNone ? Constants.RRB_BRANCHING : Len;
-        var newChildren = new Node<T>?[newCap];
-        Array.Copy(Children, 0, newChildren, 0, Len);
-
-        int[]? newSizeTable = null;
-        if (SizeTable != null)
+        // 2. TO TRANSIENT: Target is mutable (token != None).
+        // We must expand to full 32 capacity to support future appends without resizing.
+        if (token != OwnerId.None)
         {
-            newSizeTable = new int[newCap];
-            Array.Copy(SizeTable, 0, newSizeTable, 0, Len);
+            var newChildren = new Node<T>?[Constants.RRB_BRANCHING];
+            Array.Copy(this.Children, newChildren, this.Len);
+
+            int[]? newTable = null;
+            if (this.SizeTable != null)
+            {
+                newTable = new int[Constants.RRB_BRANCHING];
+                Array.Copy(this.SizeTable, newTable, this.Len);
+            }
+
+            return new InternalNode<T>(newChildren, newTable, this.Len, token);
         }
 
-        return new InternalNode<T>(newChildren, newSizeTable, Len, callerId);
+        // 3. TO PERSISTENT: Target is immutable (token == None).
+        // We strictly fit the size (Current + 1 if expanding).
+        {
+            var newCap = expand ? this.Len + 1 : this.Len;
+            var newChildren = new Node<T>?[newCap];
+            Array.Copy(this.Children, newChildren, this.Len);
+
+            int[]? newTable = null;
+            if (this.SizeTable != null)
+            {
+                newTable = new int[newCap];
+                Array.Copy(this.SizeTable, newTable, this.Len);
+            }
+
+            return new InternalNode<T>(newChildren, newTable, this.Len, token);
+        }
     }
+
+
+
 
     public InternalNode<T> Freeze(OwnerId callerId)
     {
