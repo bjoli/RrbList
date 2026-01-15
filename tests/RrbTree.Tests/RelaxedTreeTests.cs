@@ -188,22 +188,19 @@ public class RelaxedTreeTests
         var val = list[1000];
         Assert.That(2007, Is.EqualTo(val), "Failed to retrieve item from the 'gap' zone.");
     }
-    
+
     [Test]
     public void IterUnbalanced()
     {
         var unbalanced = misc.MakeUnbalanced(35000);
         long sum = 0;
         long sum2 = 0;
-        
+
         // I am just mostly trying to see if this raises an exception.
-        for (int i = 0; i < unbalanced.Count; i+=1 )
+        for (var i = 0; i < unbalanced.Count; i += 1)
             sum += unbalanced[i];
 
-        foreach (var item in unbalanced)
-        {
-            sum2 += item;
-        }
+        foreach (var item in unbalanced) sum2 += item;
         Assert.That(sum2, Is.EqualTo(sum));
     }
 }

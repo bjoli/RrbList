@@ -1,8 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using Collections; // Your namespace
+using Collections;
+
+// Your namespace
 
 namespace rrbtests;
 
@@ -13,22 +11,23 @@ public class RrbFuzzTest
     private const int Iterations = 100_000;
     private const int MaxPoolSize = 20;
     private const int MaxInitialSize = 10000;
-    private static int Seed = 10390883; //Environment.TickCount; // Seeds that caused issues: 42, 10390883
+    private static readonly int Seed = 10390883; //Environment.TickCount; // Seeds that caused issues: 42, 10390883
 
-    private readonly Random _rng = new Random(Seed);
-    
+    private readonly Random _rng = new(Seed);
+
     // The "Pool" of active lists to play with.
     // We store the RrbList and a standard List<int> as the "Truth" reference.
-    private List<(RrbList<int> Actual, List<int> Expected)> _pool = new();
+    private readonly List<(RrbList<int> Actual, List<int> Expected)> _pool = new();
+
     [Test]
     public void Run()
     {
         Console.WriteLine($"Starting Fuzz Test with Seed {Seed}...");
-        
-        // Seed the pool with a few lists
-        for (int i = 0; i < 5; i++) AddNewListToPool();
 
-        for (int i = 0; i < Iterations; i++)
+        // Seed the pool with a few lists
+        for (var i = 0; i < 5; i++) AddNewListToPool();
+
+        for (var i = 0; i < Iterations; i++)
         {
             if (i % 1000 == 0) Console.Write(".");
 
@@ -37,13 +36,13 @@ public class RrbFuzzTest
             if (_pool.Count > MaxPoolSize) PrunePool();
 
             // Pick a random operation weighted by probability
-            double roll = _rng.NextDouble();
+            var roll = _rng.NextDouble();
 
             try
             {
                 if (roll < 0.3) // 30% Split
                 {
-                   //Console.WriteLine("Split");
+                    //Console.WriteLine("Split");
                     DoSplit();
                 }
                 else if (roll < 0.6 && _pool.Count >= 2) // 30% Merge (needs 2 items)
@@ -71,22 +70,21 @@ public class RrbFuzzTest
     private void DoMerge()
     {
         // Pick two random lists
-        int idx1 = _rng.Next(_pool.Count);
-        int idx2 = _rng.Next(_pool.Count);
+        var idx1 = _rng.Next(_pool.Count);
+        var idx2 = _rng.Next(_pool.Count);
         if (idx1 == idx2) idx2 = (idx1 + 1) % _pool.Count;
-        
+
         var (rrb1, exp1) = _pool[idx1];
         var (rrb2, exp2) = _pool[idx2];
 
 
-        
         // 1. Perform RRB Merge
         var rrbResult = rrb1.Merge(rrb2);
 
         // 2. Perform Reference Merge
         var expResult = new List<int>(exp1);
         expResult.AddRange(exp2);
-        
+
         // 3. Verify
         Verify(rrbResult, expResult, "Merge");
 
@@ -98,19 +96,16 @@ public class RrbFuzzTest
 
     private void DoSplit()
     {
-        int idx = _rng.Next(_pool.Count);
+        var idx = _rng.Next(_pool.Count);
         var (rrb, exp) = _pool[idx];
 
         if (rrb.Count == 0) return; // Can't split empty
 
-        int splitIndex = _rng.Next(rrb.Count + 1); // 0 to Count inclusive
+        var splitIndex = _rng.Next(rrb.Count + 1); // 0 to Count inclusive
 
         // 1. Perform RRB Split
         Console.WriteLine(splitIndex);
-        if (splitIndex == 16069)
-        {
-            Console.WriteLine("DB");
-        }
+        if (splitIndex == 16069) Console.WriteLine("DB");
         var (leftRrb, rightRrb) = rrb.Split(splitIndex);
 
         // 2. Perform Reference Split
@@ -129,15 +124,15 @@ public class RrbFuzzTest
 
     private void DoMutation()
     {
-        int idx = _rng.Next(_pool.Count);
+        var idx = _rng.Next(_pool.Count);
         var (rrb, exp) = _pool[idx];
-        
+
         // Choose mutation type
-        int op = _rng.Next(4); // 0=Add, 1=RemoveAt, 2=Insert, 3=Set
+        var op = _rng.Next(4); // 0=Add, 1=RemoveAt, 2=Insert, 3=Set
 
         // Helpers
-        int val = _rng.Next(10000);
-        
+        var val = _rng.Next(10000);
+
         switch (op)
         {
             case 0: // Add
@@ -148,14 +143,15 @@ public class RrbFuzzTest
             case 1: // RemoveAt
                 if (rrb.Count > 0)
                 {
-                    int rmIdx = _rng.Next(rrb.Count);
+                    var rmIdx = _rng.Next(rrb.Count);
                     rrb = rrb.RemoveAt(rmIdx);
                     exp.RemoveAt(rmIdx);
                 }
+
                 break;
 
             case 2: // Insert
-                int insIdx = _rng.Next(rrb.Count + 1);
+                var insIdx = _rng.Next(rrb.Count + 1);
                 rrb = rrb.Insert(insIdx, val);
                 exp.Insert(insIdx, val);
                 break;
@@ -163,15 +159,16 @@ public class RrbFuzzTest
             case 3: // SetItem
                 if (rrb.Count > 0)
                 {
-                    int setIdx = _rng.Next(rrb.Count);
+                    var setIdx = _rng.Next(rrb.Count);
                     rrb = rrb.SetItem(setIdx, val);
                     exp[setIdx] = val;
                 }
+
                 break;
         }
 
         Verify(rrb, exp, $"Mutation-{op}");
-        
+
         // Update pool with mutated version
         _pool[idx] = (rrb, exp);
     }
@@ -190,7 +187,7 @@ public class RrbFuzzTest
         // For smaller lists, exhaustive check. For massive ones, sample.
         if (rrb.Count < 5000)
         {
-            int i = 0;
+            var i = 0;
             foreach (var item in rrb)
             {
                 if (item != expected[i])
@@ -201,21 +198,21 @@ public class RrbFuzzTest
         else
         {
             // Random sampling for speed
-            for (int k = 0; k < 50; k++)
+            for (var k = 0; k < 50; k++)
             {
-                int sampleIdx = _rng.Next(rrb.Count);
+                var sampleIdx = _rng.Next(rrb.Count);
                 if (rrb[sampleIdx] != expected[sampleIdx])
-                     throw new Exception($"[{operation}] Item mismatch at {sampleIdx}");
+                    throw new Exception($"[{operation}] Item mismatch at {sampleIdx}");
             }
         }
     }
 
     private void AddNewListToPool()
     {
-        int size = _rng.Next(MaxInitialSize);
+        var size = _rng.Next(MaxInitialSize);
         var list = new List<int>(size);
-        for (int i = 0; i < size; i++) list.Add(_rng.Next(10000));
-        
+        for (var i = 0; i < size; i++) list.Add(_rng.Next(10000));
+
         _pool.Add((new RrbList<int>(list), list));
     }
 

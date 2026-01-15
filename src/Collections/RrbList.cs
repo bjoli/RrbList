@@ -10,7 +10,6 @@
  */
 
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Collections;
@@ -19,14 +18,14 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 {
     /**
      * <summary>
-     * Gets an empty <see cref="RrbList{T}" />.
+     *     Gets an empty <see cref="RrbList{T}" />.
      * </summary>
      */
     public static readonly RrbList<T> Empty = new();
 
     internal readonly Node<T>? Root;
     internal readonly int Shift;
-    
+
     internal readonly T[] Tail;
     internal readonly int TailLen;
 
@@ -41,7 +40,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Initializes a new instance of the <see cref="RrbList{T}" /> class that is empty.
+     *     Initializes a new instance of the <see cref="RrbList{T}" /> class that is empty.
      * </summary>
      */
     public RrbList()
@@ -55,8 +54,8 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Initializes a new instance of the <see cref="RrbList{T}" /> class that contains elements copied from the specified
-     * collection.
+     *     Initializes a new instance of the <see cref="RrbList{T}" /> class that contains elements copied from the specified
+     *     collection.
      * </summary>
      * <param name="items">The collection whose elements are copied to the new list.</param>
      */
@@ -66,7 +65,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         if (items is RrbList<T> other)
         {
             Root = other.Root;
-            Tail = other.Tail; 
+            Tail = other.Tail;
             Count = other.Count;
             Shift = other.Shift;
             TailLen = other.TailLen;
@@ -93,7 +92,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Gets a value indicating whether the <see cref="T:System.Collections.Generic.ICollection`1" /> is read-only.
+     *     Gets a value indicating whether the <see cref="T:System.Collections.Generic.ICollection`1" /> is read-only.
      * </summary>
      */
     public bool IsReadOnly => true;
@@ -102,12 +101,12 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Copies the elements of the <see cref="RrbList{T}" /> to an <see cref="T:System.Array" />, starting at a particular
-     * <see cref="T:System.Array" /> index.
+     *     Copies the elements of the <see cref="RrbList{T}" /> to an <see cref="T:System.Array" />, starting at a particular
+     *     <see cref="T:System.Array" /> index.
      * </summary>
      * <param name="array">
-     * The one-dimensional <see cref="T:System.Array" /> that is the destination of the elements copied
-     * from <see cref="RrbList{T}" />. The <see cref="T:System.Array" /> must have
+     *     The one-dimensional <see cref="T:System.Array" /> that is the destination of the elements copied
+     *     from <see cref="RrbList{T}" />. The <see cref="T:System.Array" /> must have
      * </param>
      * <param name="arrayIndex">The zero-based index in <paramref name="array" /> at which copying begins.</param>
      */
@@ -123,88 +122,6 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         {
             var tailDest = arrayIndex + (Count - TailLen);
             Array.Copy(Tail, 0, array, tailDest, TailLen);
-        }
-    }
-    
-    /**
-     * <summary>
-     * Copies a range of elements from the RrbList to a compatible one-dimensional array.
-     * </summary>
-     */
-    public void CopyTo(int sourceIndex, T[] destination, int destinationIndex, int count)
-    {
-        if (sourceIndex < 0 || sourceIndex > Count) throw new ArgumentOutOfRangeException(nameof(sourceIndex));
-        if (destination == null) throw new ArgumentNullException(nameof(destination));
-        if (destinationIndex < 0) throw new ArgumentOutOfRangeException(nameof(destinationIndex));
-        if (destination.Length - destinationIndex < count) throw new ArgumentException("Destination array is too small.");
-        if (count == 0) return;
-
-        var tailOffset = Count - TailLen;
-
-        // 1. Copy from Tree (if the range starts before the tail)
-        if (sourceIndex < tailOffset)
-        {
-            var itemsFromTree = Math.Min(count, tailOffset - sourceIndex);
-            
-            if (Root != null) 
-                CopyRangeNode(Root, Shift, sourceIndex, destination, destinationIndex, itemsFromTree);
-
-            destinationIndex += itemsFromTree;
-            count -= itemsFromTree;
-            sourceIndex += itemsFromTree; // Should equal tailOffset now
-        }
-
-        // 2. Copy from Tail (if there are remaining items to copy)
-        if (count > 0)
-        {
-            var idxInTail = sourceIndex - tailOffset;
-            Array.Copy(Tail, idxInTail, destination, destinationIndex, count);
-        }
-    }
-
-    private static void CopyRangeNode(Node<T> node, int shift, int offsetInNode, T[] dest, int destIdx, int count)
-    {
-        // Base Case: Leaf
-        if (shift == 0)
-        {
-            var leaf = RrbAlgorithm.AsLeaf(node);
-            Array.Copy(leaf.Items, offsetInNode, dest, destIdx, count);
-            return;
-        }
-
-        // Recursive Step: Internal
-        var internalNode = RrbAlgorithm.AsInternal(node);
-        
-        var (childIdx, subIdx) = RrbAlgorithm.GetChildIndexAvx(internalNode, offsetInNode, shift);
-
-        while (count > 0 && childIdx < internalNode.Len)
-        {
-            var child = internalNode.Children[childIdx]!;
-            
-            int childSize;
-            if (internalNode.SizeTable != null)
-            {
-                var prev = childIdx > 0 ? internalNode.SizeTable[childIdx - 1] : 0;
-                childSize = internalNode.SizeTable[childIdx] - prev;
-            }
-            else
-            {
-                if (childIdx == internalNode.Len - 1)
-                    childSize = RrbAlgorithm.GetTotalSize(child, shift - Constants.RRB_BITS);
-                else
-                    childSize = 1 << shift;
-            }
-
-            var availableInChild = childSize - subIdx;
-            var toCopy = Math.Min(count, availableInChild);
-
-            CopyRangeNode(child, shift - Constants.RRB_BITS, subIdx, dest, destIdx, toCopy);
-
-            count -= toCopy;
-            destIdx += toCopy;
-            
-            childIdx++;
-            subIdx = 0; 
         }
     }
 
@@ -262,21 +179,21 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         {
             if ((uint)index >= (uint)Count) throw new IndexOutOfRangeException();
 
-            int tailOffset = Count - TailLen;
+            var tailOffset = Count - TailLen;
             // Direct array access
             if (index >= tailOffset) return Tail[index - tailOffset];
 
-            Node<T> node = Root!;
-            int shift = Shift;
+            var node = Root!;
+            var shift = Shift;
 
-            if (shift == 0) 
-                 return RrbAlgorithm.AsLeaf(node).Items[index];
+            if (shift == 0)
+                return RrbAlgorithm.AsLeaf(node).Items[index];
 
             while ((node.Flags & NodeFlags.IsRelaxed) != 0)
             {
                 var internalNode = Unsafe.As<InternalNode<T>>(node);
                 var (childIndex, relativeIndex) = RrbAlgorithm.GetRelaxedIndexAvx(internalNode, index, shift);
-            
+
                 node = internalNode.Children[childIndex]!;
                 index = relativeIndex;
                 shift -= Constants.RRB_BITS;
@@ -284,12 +201,95 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
             while (shift > 0)
             {
-                int childIndex = (index >> shift) & Constants.RRB_MASK;
+                var childIndex = (index >> shift) & Constants.RRB_MASK;
                 node = Unsafe.As<InternalNode<T>>(node).Children[childIndex]!;
                 shift -= Constants.RRB_BITS;
             }
 
             return Unsafe.As<LeafNode<T>>(node).Items[index & Constants.RRB_MASK];
+        }
+    }
+
+    /**
+     * <summary>
+     *     Copies a range of elements from the RrbList to a compatible one-dimensional array.
+     * </summary>
+     */
+    public void CopyTo(int sourceIndex, T[] destination, int destinationIndex, int count)
+    {
+        if (sourceIndex < 0 || sourceIndex > Count) throw new ArgumentOutOfRangeException(nameof(sourceIndex));
+        if (destination == null) throw new ArgumentNullException(nameof(destination));
+        if (destinationIndex < 0) throw new ArgumentOutOfRangeException(nameof(destinationIndex));
+        if (destination.Length - destinationIndex < count)
+            throw new ArgumentException("Destination array is too small.");
+        if (count == 0) return;
+
+        var tailOffset = Count - TailLen;
+
+        // 1. Copy from Tree (if the range starts before the tail)
+        if (sourceIndex < tailOffset)
+        {
+            var itemsFromTree = Math.Min(count, tailOffset - sourceIndex);
+
+            if (Root != null)
+                CopyRangeNode(Root, Shift, sourceIndex, destination, destinationIndex, itemsFromTree);
+
+            destinationIndex += itemsFromTree;
+            count -= itemsFromTree;
+            sourceIndex += itemsFromTree; // Should equal tailOffset now
+        }
+
+        // 2. Copy from Tail (if there are remaining items to copy)
+        if (count > 0)
+        {
+            var idxInTail = sourceIndex - tailOffset;
+            Array.Copy(Tail, idxInTail, destination, destinationIndex, count);
+        }
+    }
+
+    private static void CopyRangeNode(Node<T> node, int shift, int offsetInNode, T[] dest, int destIdx, int count)
+    {
+        // Base Case: Leaf
+        if (shift == 0)
+        {
+            var leaf = RrbAlgorithm.AsLeaf(node);
+            Array.Copy(leaf.Items, offsetInNode, dest, destIdx, count);
+            return;
+        }
+
+        // Recursive Step: Internal
+        var internalNode = RrbAlgorithm.AsInternal(node);
+
+        var (childIdx, subIdx) = RrbAlgorithm.GetChildIndexAvx(internalNode, offsetInNode, shift);
+
+        while (count > 0 && childIdx < internalNode.Len)
+        {
+            var child = internalNode.Children[childIdx]!;
+
+            int childSize;
+            if (internalNode.SizeTable != null)
+            {
+                var prev = childIdx > 0 ? internalNode.SizeTable[childIdx - 1] : 0;
+                childSize = internalNode.SizeTable[childIdx] - prev;
+            }
+            else
+            {
+                if (childIdx == internalNode.Len - 1)
+                    childSize = RrbAlgorithm.GetTotalSize(child, shift - Constants.RRB_BITS);
+                else
+                    childSize = 1 << shift;
+            }
+
+            var availableInChild = childSize - subIdx;
+            var toCopy = Math.Min(count, availableInChild);
+
+            CopyRangeNode(child, shift - Constants.RRB_BITS, subIdx, dest, destIdx, toCopy);
+
+            count -= toCopy;
+            destIdx += toCopy;
+
+            childIdx++;
+            subIdx = 0;
         }
     }
 
@@ -311,7 +311,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Returns a new list with the specified item added to the end.
+     *     Returns a new list with the specified item added to the end.
      * </summary>
      * <param name="item">The item to add.</param>
      * <returns>A new list with the item added.</returns>
@@ -324,25 +324,25 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             var newTail = new T[TailLen + 1];
             Array.Copy(Tail, 0, newTail, 0, TailLen);
             newTail[TailLen] = item;
-            
+
             return new RrbList<T>(Root, newTail, Count + 1, Shift, TailLen + 1);
         }
 
         // Case 2: Tail is full, push to tree
         var newShift = Shift;
         var oldTailLeaf = new LeafNode<T>(Tail, TailLen, OwnerId.None); // Wrap current tail
-        
+
         // Delegate to algorithm with wrapped leaf
         var newRoot = RrbAlgorithm.AppendLeafToTree(Root, oldTailLeaf, ref newShift, OwnerId.None);
 
-        var newTailArr = new T[] { item };
-        
+        var newTailArr = new[] { item };
+
         return new RrbList<T>(newRoot, newTailArr, Count + 1, newShift, 1);
     }
 
     /**
      * <summary>
-     * Returns a new list with the element at the specified index replaced with the new value.
+     *     Returns a new list with the element at the specified index replaced with the new value.
      * </summary>
      * <param name="index">The index of the element to replace.</param>
      * <param name="value">The new value for the element.</param>
@@ -358,7 +358,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             var newTail = new T[TailLen];
             Array.Copy(Tail, 0, newTail, 0, TailLen);
             newTail[index - tailOffset] = value;
-            
+
             return new RrbList<T>(Root, newTail, Count, Shift, TailLen);
         }
 
@@ -369,7 +369,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Creates a mutable builder from the current list.
+     *     Creates a mutable builder from the current list.
      * </summary>
      * <returns>A new <see cref="RrbBuilder{T}" />.</returns>
      */
@@ -415,7 +415,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Creates a slice of the list.
+     *     Creates a slice of the list.
      * </summary>
      * <param name="start">The zero-based index at which to begin the slice.</param>
      * <param name="count">The number of elements in the slice.</param>
@@ -444,10 +444,10 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             var newRootItems = new T[Constants.RRB_BRANCHING];
             count -= Constants.RRB_BRANCHING;
             var newTailItems = new T[count];
-            
+
             CopyTo(start, newRootItems, 0, Constants.RRB_BRANCHING);
             CopyTo(start + Constants.RRB_BRANCHING, newTailItems, 0, count);
-            
+
             // Wrap root in leaf
             var newRoot = new LeafNode<T>(newRootItems, Constants.RRB_BRANCHING, OwnerId.None);
 
@@ -496,10 +496,12 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             // It returns a LeafNode promotedTail, we need to unwrap it to T[]
             LeafNode<T> promotedLeaf;
             (resultRoot, promotedLeaf) = RrbAlgorithm.SliceRightAndPromote(Root!, newEnd, Shift);
-            
+
             // Unwrap LeafNode to T[]
             if (promotedLeaf.Items.Length == promotedLeaf.Len)
+            {
                 resultTail = promotedLeaf.Items;
+            }
             else
             {
                 resultTail = new T[promotedLeaf.Len];
@@ -546,11 +548,11 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
         return new RrbList<T>(resultRoot, resultTail, count, resultShift, resultTail.Length);
     }
-    
+
 
     /**
      * <summary>
-     * Merges two lists together.
+     *     Merges two lists together.
      * </summary>
      * <param name="other">The list to merge with the current list.</param>
      * <returns>A new list containing elements from both lists.</returns>
@@ -579,7 +581,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             var newLeafItems = new T[Constants.RRB_BRANCHING];
             Array.Copy(Tail, 0, newLeafItems, 0, TailLen);
             Array.Copy(other.Tail, 0, newLeafItems, TailLen, spaceInThis);
-            
+
             // Wrap in leaf node for the push operation
             var newLeaf = new LeafNode<T>(newLeafItems, Constants.RRB_BRANCHING, OwnerId.None);
 
@@ -598,7 +600,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         // Must wrap our Tail into a LeafNode for FlushTail
         var tailAsLeaf = new LeafNode<T>(Tail, TailLen, OwnerId.None);
         var leftTree = RrbAlgorithm.FlushTail(Root, tailAsLeaf, treeCount, ref newLeftShift);
-        
+
         var leftTreeShift = newLeftShift;
         int combinedShift;
         var combinedTree = RrbAlgorithm.Concat(leftTree, other.Root!, leftTreeShift, other.Shift, out combinedShift);
@@ -610,7 +612,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Splits the list into two at the specified index.
+     *     Splits the list into two at the specified index.
      * </summary>
      * <param name="index">The index at which to split the list.</param>
      * <returns>A tuple containing the left and right parts of the split list.</returns>
@@ -618,7 +620,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
     public (RrbList<T> Left, RrbList<T> Right) Split(int index)
     {
         if (index < 0 || index > Count) throw new IndexOutOfRangeException();
-        
+
         if (index == 0) return (Empty, this);
         if (index == Count) return (this, Empty);
 
@@ -627,7 +629,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         // 1. Tail Promotion (Left list gets a valid tail)
         // 2. Tail Extraction (Right list pulls from the old tail if needed)
         // 3. Density Preservation (Fast)
-        
+
         var left = Slice(0, index);
         var right = Slice(index, Count - index);
 
@@ -636,7 +638,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Inserts item at index.
+     *     Inserts item at index.
      * </summary>
      * <param name="index">The zero-based index of the element to remove.</param>
      * <param name="item">The item to insert</param>
@@ -649,7 +651,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         // Index is at the very end: delegate to Add
         if (index == Count) return Add(item);
 
-        int tailOffset = Count - TailLen;
+        var tailOffset = Count - TailLen;
 
         // Insert into Tail
         if (index >= tailOffset)
@@ -658,7 +660,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             if (TailLen < Constants.RRB_BRANCHING)
             {
                 var newTailItems = new T[TailLen + 1];
-                int idxInTail = index - tailOffset;
+                var idxInTail = index - tailOffset;
 
                 if (idxInTail > 0)
                     Array.Copy(Tail, 0, newTailItems, 0, idxInTail);
@@ -674,7 +676,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             else
             {
                 var tempItems = new T[Constants.RRB_BRANCHING + 1];
-                int idxInTail = index - tailOffset;
+                var idxInTail = index - tailOffset;
 
                 // Construct the virtual 33-item array
                 Array.Copy(Tail, 0, tempItems, 0, idxInTail);
@@ -684,7 +686,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
                 // Create the Full Node to push into tree
                 var promotedItems = new T[Constants.RRB_BRANCHING];
                 Array.Copy(tempItems, 0, promotedItems, 0, Constants.RRB_BRANCHING);
-                
+
                 // Wrap for algorithm
                 var promotedLeaf = new LeafNode<T>(promotedItems, Constants.RRB_BRANCHING, OwnerId.None);
 
@@ -693,8 +695,8 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
                 newTailItems[0] = tempItems[Constants.RRB_BRANCHING];
 
                 // Update Tree
-                int newShift = Shift;
-                Node<T> newRoot = RrbAlgorithm.AppendLeafToTree(Root, promotedLeaf, ref newShift, OwnerId.None);
+                var newShift = Shift;
+                var newRoot = RrbAlgorithm.AppendLeafToTree(Root, promotedLeaf, ref newShift, OwnerId.None);
 
                 return new RrbList<T>(newRoot, newTailItems, Count + 1, newShift, 1);
             }
@@ -703,14 +705,14 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         // Insert into Tree (Recursive)
         var result = RrbAlgorithm.InsertRecursive(Root!, index, item, Shift, OwnerId.None);
 
-        Node<T> treeRoot = result.NewNode;
-        int treeShift = Shift;
+        var treeRoot = result.NewNode;
+        var treeShift = Shift;
 
         // Handle Root Overflow
         if (result.Overflow != null)
         {
             treeShift += Constants.RRB_BITS;
-            var children = new Node<T>[] { result.NewNode, result.Overflow };
+            var children = new[] { result.NewNode, result.Overflow };
 
             // Calculate sizes for the new root
             var sizes = new int[2];
@@ -722,67 +724,64 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
         return new RrbList<T>(treeRoot, Tail, Count + 1, treeShift, TailLen);
     }
-    
-    /**
-      * <summary>
-      * Removes the element at the specified index.
-      * </summary>
-      * <param name="index">The zero-based index of the element to remove.</param>
-      * <returns>A new list with the element removed.</returns>
-      */
 
+    /**
+     * <summary>
+     *     Removes the element at the specified index.
+     * </summary>
+     * <param name="index">The zero-based index of the element to remove.</param>
+     * <returns>A new list with the element removed.</returns>
+     */
     public RrbList<T> RemoveAt(int index)
     {
         if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
 
         // Simple case: Index is in the Tail
-        int tailOffset = Count - TailLen;
+        var tailOffset = Count - TailLen;
         if (index >= tailOffset)
         {
-            int indexInTail = index - tailOffset;
-        
+            var indexInTail = index - tailOffset;
+
             // Create new tail array
             var newTailItems = new T[TailLen - 1];
             if (indexInTail > 0)
                 Array.Copy(Tail, 0, newTailItems, 0, indexInTail);
             if (indexInTail < TailLen - 1)
                 Array.Copy(Tail, indexInTail + 1, newTailItems, indexInTail, TailLen - indexInTail - 1);
-            
+
             return new RrbList<T>(Root, newTailItems, Count - 1, Shift, newTailItems.Length);
         }
 
         // Sad case: Index is in the Tree
         // We execute a zip removal, which is always going to be faster than 
         // removing using slice, but may end up with a more unbalanced tree
-    
-        Node<T>? newRoot = RrbAlgorithm.RemoveRecursive(Root!, index, Shift);
-        int newShift = Shift;
+
+        var newRoot = RrbAlgorithm.RemoveRecursive(Root!, index, Shift);
+        var newShift = Shift;
 
         // Handle Root Collapse (if root became a single child)
-        while (newRoot != null && 
-               newShift > 0 && 
-               newRoot is InternalNode<T> inode && 
+        while (newRoot != null &&
+               newShift > 0 &&
+               newRoot is InternalNode<T> inode &&
                inode.Len == 1)
         {
             // If the root has only 1 child, that child becomes the new root
             newRoot = inode.Children[0];
             newShift -= Constants.RRB_BITS;
         }
-    
+
         if (newRoot == null)
-        {
             // Tree empty, only tail remains
             return new RrbList<T>(null, Tail, TailLen, 0, TailLen);
-        }
 
         return new RrbList<T>(newRoot, Tail, Count - 1, newShift, TailLen);
     }
-    
+
     /**
      * <summary>
-     * Returns a new, fully compacted (dense) version of this list.
-     * This operation is O(N) as it rebuilds the tree structure.
-     * Use this if the tree depth becomes excessive due to repeated relaxed operations.
+     *     Returns a new, fully compacted (dense) version of this list.
+     *     This operation is O(N) as it rebuilds the tree structure.
+     *     Use this if the tree depth becomes excessive due to repeated relaxed operations.
      * </summary>
      */
     public RrbList<T> Compact()
@@ -796,7 +795,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Returns a string representation with debug information
+     *     Returns a string representation with debug information
      * </summary>
      * <returns>A string that represents the current object.</returns>
      */
@@ -869,7 +868,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Removes the last element from the list.
+     *     Removes the last element from the list.
      * </summary>
      * <returns>A new list with the last element removed.</returns>
      */
@@ -882,7 +881,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         {
             var newTailItems = new T[TailLen - 1];
             Array.Copy(Tail, 0, newTailItems, 0, TailLen - 1);
-            
+
             return new RrbList<T>(Root, newTailItems, Count - 1, Shift, TailLen - 1);
         }
 
@@ -893,7 +892,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Removes the first element from the list.
+     *     Removes the first element from the list.
      * </summary>
      * <returns>A new list with the first element removed.</returns>
      */
@@ -906,13 +905,13 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
     /**
      * <summary>
-     * Verifies the internal structural integrity of the RRB-Tree. Throws an exception if an inconsistency is found.
+     *     Verifies the internal structural integrity of the RRB-Tree. Throws an exception if an inconsistency is found.
      * </summary>
      */
     public void VerifyIntegrity()
     {
         if (Root == null) return;
-        
+
         // 1. Traverse and verify structure/invariants
         VerifyNode(Root, Shift);
 
@@ -921,9 +920,9 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         if (countedSize != Count - TailLen)
             throw new Exception(
                 $"Integrity Error: Root tracks {Count - TailLen} items, but traversal found {countedSize}.");
-        
+
         if (Tail.Length < TailLen)
-             throw new Exception($"Integrity Error: Tail array size {Tail.Length} < TailLen {TailLen}");
+            throw new Exception($"Integrity Error: Tail array size {Tail.Length} < TailLen {TailLen}");
     }
 
     private int CountNode(Node<T> node, int shift)
@@ -931,15 +930,16 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
         if (shift == 0) return node.Len;
         var inode = (InternalNode<T>)node;
         var sum = 0;
-        
+
         for (var i = 0; i < inode.Len; i++)
         {
             // SAFETY: Check for null before recursion
             var child = inode.Children[i];
-            if (child == null) continue; 
-            
+            if (child == null) continue;
+
             sum += CountNode(child, shift - Constants.RRB_BITS);
         }
+
         return sum;
     }
 
@@ -980,7 +980,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
                 // Verify Balanced Invariant
                 // All children except the last must be full
                 var capacity = 1 << shift;
-                
+
                 // Only enforce "Fullness" if it's not the very last logical child
                 // and not a null gap.
                 if (i < inode.Len - 1)

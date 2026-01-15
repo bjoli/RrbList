@@ -10,26 +10,26 @@
  */
 
 
-namespace Collections;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+namespace Collections;
 
 // Layout: 
 // [Header: 16B] + [Ref: 8B] + [Owner: 6B] + [Len: 1B] + [Flags: 1B] = 32 Bytes
-[StructLayout(LayoutKind.Auto, Pack=1)]
+[StructLayout(LayoutKind.Auto, Pack = 1)]
 internal abstract class Node<T>
 {
     // Note: The specific "Children" or "Items" reference is defined in subclasses,
     // but the CLR generally packs references first. 
     // The fields below consume exactly 8 bytes.
-    
-    public OwnerId Owner;   // 6 bytes
-    public byte Len;        // 1 byte
+
+    public OwnerId Owner; // 6 bytes
+    public byte Len; // 1 byte
     public NodeFlags Flags; // 1 byte
 }
 
-[StructLayout(LayoutKind.Auto, Pack=1)]
+[StructLayout(LayoutKind.Auto, Pack = 1)]
 internal sealed class LeafNode<T> : Node<T>
 {
     public static readonly LeafNode<T> Empty = new(0, OwnerId.None);
@@ -74,14 +74,12 @@ internal sealed class LeafNode<T> : Node<T>
     {
         // 1. Already Immutable (None) OR Effectively Immutable (Older generation)
         if (Owner.IsNone)
-        {
             // If the size is correct, we don't need to do anything.
-            if (Items.Length == Len) return this;
-        }
+            if (Items.Length == Len)
+                return this;
 
         // 2. In-Place Freeze (It's OUR node)
         if (Owner == callerId)
-        {
             if (Items.Length == Len)
             {
                 // Zero allocation freeze
@@ -89,7 +87,6 @@ internal sealed class LeafNode<T> : Node<T>
                 Flags |= NodeFlags.IsFrozen;
                 return this;
             }
-        }
 
         // 3. Must Copy (Shrinking required or alien owner)
         var newItems = new T[Len];
@@ -107,11 +104,11 @@ internal sealed class LeafNode<T> : Node<T>
     }
 }
 
-[StructLayout(LayoutKind.Auto, Pack=1)]
+[StructLayout(LayoutKind.Auto, Pack = 1)]
 internal sealed class InternalNode<T> : Node<T>
 {
     public readonly Node<T>?[] Children; // Reference (8 bytes)
-    public readonly int[]? SizeTable;    // Reference (8 bytes) -> Pushes this node to 40 bytes if present
+    public readonly int[]? SizeTable; // Reference (8 bytes) -> Pushes this node to 40 bytes if present
 
     public InternalNode(int size, OwnerId owner)
     {
@@ -127,18 +124,17 @@ internal sealed class InternalNode<T> : Node<T>
         SizeTable = sizeTable;
         Len = (byte)len;
         Owner = owner;
-        
+
         if (sizeTable != null) Flags |= NodeFlags.IsRelaxed;
     }
 
     // 'ensure_internal_editable' in c-rrb in rrb_transients.h
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-
     public InternalNode<T> EnsureEditable(OwnerId token, bool expand = false)
     {
         // 1. MATCH: Already mutable and owned by us.
         // INVARIANT: If Owner is set, We know capacity is 32. Party all night
-        if (token == this.Owner && token != OwnerId.None)
+        if (token == Owner && token != OwnerId.None)
             return this;
 
         // 2. TO TRANSIENT: Target is mutable (token != None).
@@ -146,37 +142,35 @@ internal sealed class InternalNode<T> : Node<T>
         if (token != OwnerId.None)
         {
             var newChildren = new Node<T>?[Constants.RRB_BRANCHING];
-            Array.Copy(this.Children, newChildren, this.Len);
+            Array.Copy(Children, newChildren, Len);
 
             int[]? newTable = null;
-            if (this.SizeTable != null)
+            if (SizeTable != null)
             {
                 newTable = new int[Constants.RRB_BRANCHING];
-                Array.Copy(this.SizeTable, newTable, this.Len);
+                Array.Copy(SizeTable, newTable, Len);
             }
 
-            return new InternalNode<T>(newChildren, newTable, this.Len, token);
+            return new InternalNode<T>(newChildren, newTable, Len, token);
         }
 
         // 3. TO PERSISTENT: Target is immutable (token == None).
         // We strictly fit the size (Current + 1 if expanding).
         {
-            var newCap = expand ? this.Len + 1 : this.Len;
+            var newCap = expand ? Len + 1 : Len;
             var newChildren = new Node<T>?[newCap];
-            Array.Copy(this.Children, newChildren, this.Len);
+            Array.Copy(Children, newChildren, Len);
 
             int[]? newTable = null;
-            if (this.SizeTable != null)
+            if (SizeTable != null)
             {
                 newTable = new int[newCap];
-                Array.Copy(this.SizeTable, newTable, this.Len);
+                Array.Copy(SizeTable, newTable, Len);
             }
 
-            return new InternalNode<T>(newChildren, newTable, this.Len, token);
+            return new InternalNode<T>(newChildren, newTable, Len, token);
         }
     }
-
-
 
 
     public InternalNode<T> Freeze(OwnerId callerId)
@@ -184,20 +178,17 @@ internal sealed class InternalNode<T> : Node<T>
         // 1. Effectively Immutable check
         // If the node belongs to an older build, we treat it as frozen.
         if (Owner.IsNone)
-        {
-            if (Children.Length == Len) return this;
-        }
+            if (Children.Length == Len)
+                return this;
 
         // 2. In-Place Freeze
         if (Owner == callerId)
-        {
             if (Children.Length == Len)
             {
                 Owner = OwnerId.None;
                 Flags |= NodeFlags.IsFrozen;
                 return this;
             }
-        }
 
         // 3. Copy/Shrink
         var newChildren = new Node<T>?[Len];

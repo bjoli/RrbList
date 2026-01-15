@@ -110,7 +110,9 @@ internal static class RrbAlgorithm
         // We pass null for token because FlushTail is usually a persistent op (Merge)
         return AppendLeafToTree(root, tail, ref shift, OwnerId.None);
     }
-public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShift, int rightShift, out int newShift)
+
+    public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShift, int rightShift,
+        out int newShift)
     {
         // Height Diff Handling (Same as before)
         if (leftShift > rightShift)
@@ -120,6 +122,7 @@ public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShi
             var mergedMid = Concat(lastChild, rightNode, leftShift - Constants.RRB_BITS, rightShift, out var subShift);
             return Rebalance(left, mergedMid, null, leftShift, subShift, out newShift);
         }
+
         if (leftShift < rightShift)
         {
             var right = AsInternal(rightNode);
@@ -140,12 +143,12 @@ public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShi
         if (leftShift == 0)
         {
             // Leaf Level Merge
-           
+
             newShift = Constants.RRB_BITS;
             // Create parent with 2 children
             return CreateNewParent(leftNode, rightNode, OwnerId.None);
         }
-        else
+
         {
             // Internal Level Merge
             var left = AsInternal(leftNode);
@@ -153,22 +156,23 @@ public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShi
             var midLeft = left.Children[left.Len - 1]!;
             var midRight = right.Children[0]!;
 
-            var mergedMid = Concat(midLeft, midRight, leftShift - Constants.RRB_BITS, rightShift - Constants.RRB_BITS, out var subShift);
+            var mergedMid = Concat(midLeft, midRight, leftShift - Constants.RRB_BITS, rightShift - Constants.RRB_BITS,
+                out var subShift);
             return Rebalance(left, mergedMid, right, leftShift, subShift, out newShift);
         }
     }
 
     /// <summary>
-    /// Attempts to merge two nodes of the same height by simply concatenating their arrays.
-    /// Returns null if a simple copy is not possible/optimal (e.g. requires deep rebalancing).
+    ///     Attempts to merge two nodes of the same height by simply concatenating their arrays.
+    ///     Returns null if a simple copy is not possible/optimal (e.g. requires deep rebalancing).
     /// </summary>
-  private static Node<T>? ConcatFast<T>(Node<T> left, Node<T> right, int shift, out int newShift)
+    private static Node<T>? ConcatFast<T>(Node<T> left, Node<T> right, int shift, out int newShift)
     {
-        int totalLen = left.Len + right.Len;
-        if (totalLen > Constants.RRB_BRANCHING) 
+        var totalLen = left.Len + right.Len;
+        if (totalLen > Constants.RRB_BRANCHING)
         {
-            newShift = shift; 
-            return null; 
+            newShift = shift;
+            return null;
         }
 
         if (shift == 0)
@@ -185,8 +189,8 @@ public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShi
         var lNode = AsInternal(left);
         var rNode = AsInternal(right);
 
-        bool leftIsDense = (lNode.Flags & NodeFlags.IsRelaxed) == 0;
-        bool rightIsDense = (rNode.Flags & NodeFlags.IsRelaxed) == 0;
+        var leftIsDense = (lNode.Flags & NodeFlags.IsRelaxed) == 0;
+        var rightIsDense = (rNode.Flags & NodeFlags.IsRelaxed) == 0;
 
         // Optimization: Perfect Merge of two Dense nodes.
         if (leftIsDense && rightIsDense)
@@ -194,28 +198,28 @@ public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShi
             // We need to know if Left's last child is "Full".
             // A full child has exactly the capacity of the lower level.
             // Capacity = 1 << shift. (e.g., Shift 5 child capacity is 32 items).
-            
+
             // NOTE: 'shift' passed here is the PARENT's shift (e.g. 5, 10).
             // The capacity of the child is 1 << shift.
             // Wait, no.
             // Shift 5 Node -> Children are Leaves.
             // Leaf Capacity is 32. 
             // 1 << 5 = 32. Correct.
-            
+
             // Shift 10 Node -> Children are Shift 5 Nodes.
             // Child Capacity is 32 * 32 = 1024.
             // 1 << 10 = 1024. Correct.
-            
-            int expectedChildSize = 1 << shift;
-            
-            int lastChildSize = CountTree(lNode.Children[lNode.Len - 1]!, shift - Constants.RRB_BITS);
-            
+
+            var expectedChildSize = 1 << shift;
+
+            var lastChildSize = CountTree(lNode.Children[lNode.Len - 1]!, shift - Constants.RRB_BITS);
+
             if (lastChildSize == expectedChildSize)
             {
                 var newChildren = new Node<T>?[totalLen];
                 Array.Copy(lNode.Children, 0, newChildren, 0, lNode.Len);
                 Array.Copy(rNode.Children, 0, newChildren, lNode.Len, rNode.Len);
-                
+
                 newShift = shift;
                 return new InternalNode<T>(newChildren, null, totalLen, OwnerId.None);
             }
@@ -225,7 +229,7 @@ public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShi
         return null;
     }
 
-private static Node<T> Rebalance<T>(
+    private static Node<T> Rebalance<T>(
         InternalNode<T>? left,
         Node<T> center,
         InternalNode<T>? right,
@@ -241,7 +245,8 @@ private static Node<T> Rebalance<T>(
 
         // ... [Collection logic stays same] ...
         if (left != null)
-            for (var i = 0; i < left.Len - 1; i++) allChildren[count++] = left.Children[i]!;
+            for (var i = 0; i < left.Len - 1; i++)
+                allChildren[count++] = left.Children[i]!;
 
         if (centerShift == shift)
         {
@@ -254,7 +259,8 @@ private static Node<T> Rebalance<T>(
         }
 
         if (right != null)
-            for (var i = 1; i < right.Len; i++) allChildren[count++] = right.Children[i]!;
+            for (var i = 1; i < right.Len; i++)
+                allChildren[count++] = right.Children[i]!;
 
         var childrenSlice = new ReadOnlySpan<Node<T>>(allChildren, 0, count);
 
@@ -266,12 +272,12 @@ private static Node<T> Rebalance<T>(
             // We must calculate sizes if ANY input was relaxed or if we created a gap.
             // But ExecuteConcatPlan does that for us. 
             // We can skip CreateConcatPlan.
-            
-            
+
+
             var newChildren = new Node<T>?[count];
             // Span copy to array
-            for(int i=0; i<count; i++) newChildren[i] = allChildren[i];
-            
+            for (var i = 0; i < count; i++) newChildren[i] = allChildren[i];
+
             var newNode = new InternalNode<T>(newChildren, null, count, OwnerId.None);
             var result = SetSizes(newNode, shift);
             newShift = shift;
@@ -282,7 +288,7 @@ private static Node<T> Rebalance<T>(
         // (This remains the robust fallback for when nodes actually need redistributing)
         Span<int> plan = stackalloc int[count];
         CreateConcatPlan(childrenSlice, plan, out var topLen);
-        
+
         var newAll = ExecuteConcatPlan(childrenSlice, plan, topLen, shift);
 
         if (topLen <= Constants.RRB_BRANCHING)
@@ -303,6 +309,7 @@ private static Node<T> Rebalance<T>(
         parent.Children[1] = newRight;
         return SetSizes(parent, newShift);
     }
+
     private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, Span<int> plan, int slen, int shift)
     {
         var newChildren = new Node<T>?[slen];
@@ -314,13 +321,13 @@ private static Node<T> Rebalance<T>(
         for (var i = 0; i < slen; i++)
         {
             var newSize = plan[i];
-            
-             if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
-             {
-                 newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
-                 idx++;
-                 continue;
-             }
+
+            if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
+            {
+                newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
+                idx++;
+                continue;
+            }
 
             if (shufflingLeaves)
             {
@@ -380,7 +387,6 @@ private static Node<T> Rebalance<T>(
     }
 
 
-    
     private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
     {
         Span<int> sizes = stackalloc int[node.Len];
@@ -415,10 +421,10 @@ private static Node<T> Rebalance<T>(
         return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, OwnerId.None);
     }
 
-    
+
     private static int CountTree<T>(Node<T> node, int shift)
     {
-        int totalSize = 0;
+        var totalSize = 0;
 
         // Iterate down the rightmost edge until we hit a leaf or a relaxed node
         while (shift > 0)
@@ -429,9 +435,7 @@ private static Node<T> Rebalance<T>(
             // Fast Path: Relaxed Node
             // If the node has a SizeTable, we can stop immediately. The table holds the accurate total count.
             if ((internalNode.Flags & NodeFlags.IsRelaxed) != 0)
-            {
                 return totalSize + internalNode.SizeTable![internalNode.Len - 1];
-            }
 
             // Dense Path
             // We know that in a dense node, all children except the last one are fully populated.
@@ -462,63 +466,61 @@ private static Node<T> Rebalance<T>(
         // Note: Caller guarantees toDrop < total count
         return SliceLeftRec(root, toDrop, shift);
     }
-    
+
     /// <summary>
-    /// Slices the tree at 'limit'.
-    /// If the resulting rightmost leaf is Partial (less than 32), it is detached and returned as PromotedTail.
-    /// If the resulting rightmost leaf is Full (32), it stays in the tree (PromotedTail is Empty).
+    ///     Slices the tree at 'limit'.
+    ///     If the resulting rightmost leaf is Partial (less than 32), it is detached and returned as PromotedTail.
+    ///     If the resulting rightmost leaf is Full (32), it stays in the tree (PromotedTail is Empty).
     /// </summary>
-    public static (Node<T>? NewTree, LeafNode<T> PromotedTail) SliceRightAndPromote<T>(Node<T> node, int limit, int shift)
+    public static (Node<T>? NewTree, LeafNode<T> PromotedTail) SliceRightAndPromote<T>(Node<T> node, int limit,
+        int shift)
     {
         // --- Base Case: Leaf ---
         if (shift == 0)
         {
             var leaf = AsLeaf(node);
-            
+
             // Optimization: If taking the exact existing leaf
             if (leaf.Len == limit)
-            {
-                return limit < Constants.RRB_BRANCHING 
-                    ? (null, leaf)                 // It's partial -> Promote it
-                    : (leaf, LeafNode<T>.Empty);   // It's full -> Keep it
-            }
+                return limit < Constants.RRB_BRANCHING
+                    ? (null, leaf) // It's partial -> Promote it
+                    : (leaf, LeafNode<T>.Empty); // It's full -> Keep it
 
             // Otherwise, Create the slice
             var newItems = new T[limit];
             Array.Copy(leaf.Items, 0, newItems, 0, limit);
             var newLeaf = new LeafNode<T>(newItems, limit, OwnerId.None);
 
-            return limit < Constants.RRB_BRANCHING 
-                ? (null, newLeaf) 
+            return limit < Constants.RRB_BRANCHING
+                ? (null, newLeaf)
                 : (newLeaf, LeafNode<T>.Empty);
         }
 
         // --- Recursive Step: Internal ---
         var internalNode = AsInternal(node);
-        
+
         // Find which child contains the 'limit' boundary
         var (childIdx, idxInChild) = GetChildIndexAvx(internalNode, limit - 1, shift);
-        
+
         // Recurse strictly on that child
         var limitInChild = idxInChild + 1;
-        var (childResult, promotedTail) = SliceRightAndPromote(internalNode.Children[childIdx]!, limitInChild, shift - Constants.RRB_BITS);
+        var (childResult, promotedTail) =
+            SliceRightAndPromote(internalNode.Children[childIdx]!, limitInChild, shift - Constants.RRB_BITS);
 
         // --- Reconstruct the Node ---
-        
+
         // 1. Determine new length of this node
         // If childResult is null, it means the child was fully consumed (promoted).
         // So this node loses that child.
-        int newLen = childResult == null ? childIdx : childIdx + 1;
+        var newLen = childResult == null ? childIdx : childIdx + 1;
 
         if (newLen == 0)
-        {
             // If we lost the only child, this node disappears too.
             return (null, promotedTail);
-        }
 
         // 2. Allocate and Copy Children
         var newChildren = new Node<T>?[newLen];
-        
+
         // Copy preceding children (they are untouched)
         // Optimization: Use Array.Copy for speed
         if (childIdx > 0)
@@ -536,16 +538,16 @@ private static Node<T> Rebalance<T>(
         //    b) A previous sibling. 
         //       Previous siblings of a Dense node are always FULL.
         // THEREFORE: The resulting node is ALWAYS Dense. We do not need to generate a table.
-        
+
         // The ONLY exception is if the original node had a SizeTable (was relaxed).
         // Then we must preserve/update it.
-        
+
         int[]? newSizeTable = null;
         if (internalNode.SizeTable != null)
         {
             newSizeTable = new int[newLen];
             Array.Copy(internalNode.SizeTable, newSizeTable, newLen);
-            
+
             // Update the last entry to reflect the exact cut
             // The size at this boundary is exactly 'limit', MINUS whatever we promoted.
             int tailSize = promotedTail.Len; // 0 if empty
@@ -593,7 +595,7 @@ private static Node<T> Rebalance<T>(
         // Rebuild Size Table
         // If we slice from the left, indices shift, so we almost always need a SizeTable.
         // Exception: If we dropped exact whole subtrees from a balanced node, it stays balanced!
-        var staysBalanced = ((internalNode.Flags & NodeFlags.IsRelaxed) == 0) && dropInChild == 0;
+        var staysBalanced = (internalNode.Flags & NodeFlags.IsRelaxed) == 0 && dropInChild == 0;
 
         int[]? newSizeTable = null;
         if (!staysBalanced)
@@ -621,13 +623,14 @@ private static Node<T> Rebalance<T>(
                     {
                         // The last child of a dense node is the ONLY one that might not be full.
                         // We must calculate the actual total size of the original node.
-            
+
                         // 1. Sum of all preceding full siblings
                         var fullChildrenSize = (long)(internalNode.Len - 1) * childCapacity;
-            
+
                         // 2. Actual size of the last child (use CountTree to traverse down)
-                        var lastChildSize = CountTree(internalNode.Children[internalNode.Len - 1]!, shift - Constants.RRB_BITS);
-            
+                        var lastChildSize = CountTree(internalNode.Children[internalNode.Len - 1]!,
+                            shift - Constants.RRB_BITS);
+
                         oldCumulative = fullChildrenSize + lastChildSize;
                     }
                     else
@@ -643,7 +646,7 @@ private static Node<T> Rebalance<T>(
 
         return new InternalNode<T>(newChildren, newSizeTable, remainingChildren, OwnerId.None);
     }
-    
+
 
 // Returns the updated node if the tail could be inserted/merged.
 // Returns NULL if the node is physically full and the tail could not be accepted.
@@ -656,7 +659,7 @@ private static Node<T> Rebalance<T>(
         {
             if (internalNode.Len < Constants.RRB_BRANCHING)
                 return AppendChild(internalNode, tail, shift, token);
-            return null; 
+            return null;
         }
 
         // 2. Internal Level -> Recurse Spine
@@ -664,7 +667,7 @@ private static Node<T> Rebalance<T>(
         {
             var lastIdx = internalNode.Len - 1;
             var lastChild = internalNode.Children[lastIdx]!;
-        
+
             var newLastChild = TryPushDownTail(lastChild, tail, shift - Constants.RRB_BITS, token);
 
             if (newLastChild != null)
@@ -676,7 +679,7 @@ private static Node<T> Rebalance<T>(
                 // Update metadata (SizeTable) ONLY if necessary
                 if ((editable.Flags & NodeFlags.IsRelaxed) != 0)
                     editable.SizeTable![lastIdx] += tail.Len;
-                
+
                 return editable;
             }
         }
@@ -690,113 +693,106 @@ private static Node<T> Rebalance<T>(
 
         return null;
     }
-   private static InternalNode<T> AppendChild<T>(InternalNode<T> node, Node<T> childToAdd, int shift, OwnerId token)
-{
-    // Check if appending this child violates the Dense Invariant.
-    // Violation happens if we are currently Dense, but the LAST child is not full.
-    bool requiresRelaxation = false;
-    
-    if ((node.Flags & NodeFlags.IsRelaxed) == 0 && node.Len > 0)
-    {
-        // We only strictly need to check this at the leaf-parent level (Shift 5)
-        // or if we trust that higher levels handle their own density.
-        if (shift == Constants.RRB_BITS)
-        {
-            var lastChild = AsLeaf(node.Children[node.Len - 1]!);
-            if (lastChild.Len < Constants.RRB_BRANCHING) 
-                requiresRelaxation = true;
-        }
-        else
-        {
-             // For higher levels, if we are Dense, the last child might be a 
-             // Dense node that is physically full (Len 32) but structurally partial.
-             // However, checking the physical size is usually enough here:
-             var lastChild = node.Children[node.Len - 1]!;
-             var totalSize = GetTotalSize(lastChild, shift - Constants.RRB_BITS);
-             if (totalSize < (1 << shift))
-                 requiresRelaxation = true;
-        }
-    }
 
-    // 1. Get Writable Node
-    // If we detected a violation, we MUST force expansion to include a SizeTable.
-    InternalNode<T> editable;
-    
-    if (requiresRelaxation)
+    private static InternalNode<T> AppendChild<T>(InternalNode<T> node, Node<T> childToAdd, int shift, OwnerId token)
     {
-        // Special Path: Upgrade Dense -> Relaxed
-        editable = CreateRelaxedNodeFromDense(node, token, shift);
+        // Check if appending this child violates the Dense Invariant.
+        // Violation happens if we are currently Dense, but the LAST child is not full.
+        var requiresRelaxation = false;
+
+        if ((node.Flags & NodeFlags.IsRelaxed) == 0 && node.Len > 0)
+        {
+            // We only strictly need to check this at the leaf-parent level (Shift 5)
+            // or if we trust that higher levels handle their own density.
+            if (shift == Constants.RRB_BITS)
+            {
+                var lastChild = AsLeaf(node.Children[node.Len - 1]!);
+                if (lastChild.Len < Constants.RRB_BRANCHING)
+                    requiresRelaxation = true;
+            }
+            else
+            {
+                // For higher levels, if we are Dense, the last child might be a 
+                // Dense node that is physically full (Len 32) but structurally partial.
+                // However, checking the physical size is usually enough here:
+                var lastChild = node.Children[node.Len - 1]!;
+                var totalSize = GetTotalSize(lastChild, shift - Constants.RRB_BITS);
+                if (totalSize < 1 << shift)
+                    requiresRelaxation = true;
+            }
+        }
+
+        // 1. Get Writable Node
+        // If we detected a violation, we MUST force expansion to include a SizeTable.
+        InternalNode<T> editable;
+
+        if (requiresRelaxation)
+            // Special Path: Upgrade Dense -> Relaxed
+            editable = CreateRelaxedNodeFromDense(node, token, shift);
         // Note: CreateRelaxedNodeFromDense already handles 'expand: true' logic
         // by allocating a table large enough.
-    }
-    else
-    {
-        // Standard Path
-        editable = node.EnsureEditable(token, expand: true);
-    }
-
-    // 2. Insert
-    editable.Children[editable.Len] = childToAdd;
-
-    // 3. Update SizeTable (It exists if we were already relaxed OR if we just forced it)
-    if ((editable.Flags & NodeFlags.IsRelaxed) != 0)
-    {
-        var prevTotal = editable.Len > 0 ? editable.SizeTable![editable.Len - 1] : 0;
-        
-        var addedSize = (shift == Constants.RRB_BITS) 
-            ? AsLeaf(childToAdd).Len 
-            : GetTotalSize(childToAdd, shift - Constants.RRB_BITS);
-
-        editable.SizeTable![editable.Len] = prevTotal + addedSize;
-    }
-
-    editable.Len++;
-    return editable;
-}
-   
-   
-private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> node, OwnerId token, int shift)
-{
-    // 1. Determine Capacity
-    // If we have an Owner (Transient), we go full capacity (32).
-    // If Persistent, we allocate exactly existing Len + 1 (room for the new child).
-    var newCap = !token.IsNone ? Constants.RRB_BRANCHING : node.Len + 1;
-    
-    var newChildren = new Node<T>?[newCap];
-    var newTable = new int[newCap];
-
-    Array.Copy(node.Children, newChildren, node.Len);
-
-    // 2. Build the Size Table
-    // Since 'node' was Dense, we know all children 0 to Len-2 are FULL.
-    // Only node.Children[Len-1] might be partial.
-    
-    var blockSize = 1 << shift;
-    var currentSum = 0;
-    var childShift = shift - Constants.RRB_BITS;
-
-    for (int i = 0; i < node.Len; i++)
-    {
-        if (i < node.Len - 1)
-        {
-            // Guaranteed full
-            currentSum += blockSize;
-        }
         else
+            // Standard Path
+            editable = node.EnsureEditable(token, true);
+
+        // 2. Insert
+        editable.Children[editable.Len] = childToAdd;
+
+        // 3. Update SizeTable (It exists if we were already relaxed OR if we just forced it)
+        if ((editable.Flags & NodeFlags.IsRelaxed) != 0)
         {
-            // Last child: Calculate actual size
-            // (We can assume the last child is Dense because the parent was Dense)
-            currentSum += CountTree(node.Children[i]!, childShift); 
-            // Or use RrbAlgorithm.GetTotalSize which handles the flags check
+            var prevTotal = editable.Len > 0 ? editable.SizeTable![editable.Len - 1] : 0;
+
+            var addedSize = shift == Constants.RRB_BITS
+                ? AsLeaf(childToAdd).Len
+                : GetTotalSize(childToAdd, shift - Constants.RRB_BITS);
+
+            editable.SizeTable![editable.Len] = prevTotal + addedSize;
         }
-        newTable[i] = currentSum;
+
+        editable.Len++;
+        return editable;
     }
 
-    // 3. Return new node marked as Relaxed
-    var newNode = new InternalNode<T>(newChildren, newTable, node.Len, token);
-    // Note: InternalNode ctor sets IsRelaxed if table != null
-    return newNode;
-}
+
+    private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> node, OwnerId token, int shift)
+    {
+        // 1. Determine Capacity
+        // If we have an Owner (Transient), we go full capacity (32).
+        // If Persistent, we allocate exactly existing Len + 1 (room for the new child).
+        var newCap = !token.IsNone ? Constants.RRB_BRANCHING : node.Len + 1;
+
+        var newChildren = new Node<T>?[newCap];
+        var newTable = new int[newCap];
+
+        Array.Copy(node.Children, newChildren, node.Len);
+
+        // 2. Build the Size Table
+        // Since 'node' was Dense, we know all children 0 to Len-2 are FULL.
+        // Only node.Children[Len-1] might be partial.
+
+        var blockSize = 1 << shift;
+        var currentSum = 0;
+        var childShift = shift - Constants.RRB_BITS;
+
+        for (var i = 0; i < node.Len; i++)
+        {
+            if (i < node.Len - 1)
+                // Guaranteed full
+                currentSum += blockSize;
+            else
+                // Last child: Calculate actual size
+                // (We can assume the last child is Dense because the parent was Dense)
+                currentSum += CountTree(node.Children[i]!, childShift);
+            // Or use RrbAlgorithm.GetTotalSize which handles the flags check
+            newTable[i] = currentSum;
+        }
+
+        // 3. Return new node marked as Relaxed
+        var newNode = new InternalNode<T>(newChildren, newTable, node.Len, token);
+        // Note: InternalNode ctor sets IsRelaxed if table != null
+        return newNode;
+    }
 
 
 // Helper to get size without crashing. That was a thin
@@ -804,10 +800,8 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
     {
         if (shift == 0) return node.Len;
         if ((node.Flags & NodeFlags.IsRelaxed) != 0)
-        {
             // Now we know it's safe to cast and read
             return Unsafe.As<InternalNode<T>>(node).SizeTable![node.Len - 1];
-        }
 
         // It's a dense node.
         // However, if we are calling this on a child that forced relaxation, 
@@ -817,7 +811,6 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
         var lastChildSize = GetTotalSize(denseNode.Children[denseNode.Len - 1]!, shift - Constants.RRB_BITS);
         return fullParams + lastChildSize;
     }
-
 
 
     public static Node<T> AppendLeafToTree<T>(Node<T>? root, LeafNode<T> leafToPush, ref int shift, OwnerId token)
@@ -879,7 +872,7 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
 
         return newParent;
     }
-    
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Node<T> CreatePath<T>(int shift, LeafNode<T> tail, OwnerId token)
     {
@@ -893,33 +886,31 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
         // A node MUST be Relaxed if:
         // 1. The child itself is Relaxed (Relaxation bubbles up).
         // 2. The child is not physically full (Violates strict Dense invariant).
-    
+
         var childIsRelaxed = (child.Flags & NodeFlags.IsRelaxed) != 0;
-    
+
         // Calculate if strictly full (1 << shift items)
         // Since this is a single path, the total size is just the tail length.
         // (Optimization: We can check tail.Len directly against the shift capacity)
-        var isFull = tail.Len == (1 << shift);
+        var isFull = tail.Len == 1 << shift;
 
         if (childIsRelaxed || !isFull)
         {
             // Create Relaxed Parent
             var children = new Node<T>?[!token.IsNone ? Constants.RRB_BRANCHING : 1];
             children[0] = child;
-        
+
             var sizeTable = new int[children.Length];
             sizeTable[0] = tail.Len; // The total size is just the tail
-        
+
             return new InternalNode<T>(children, sizeTable, 1, token);
         }
-        else
-        {
-            // Create Dense Parent
-            // Only allowed if child is NOT relaxed AND we are strictly full.
-            var node = new InternalNode<T>(1, token);
-            node.Children[0] = child;
-            return node;
-        }
+
+        // Create Dense Parent
+        // Only allowed if child is NOT relaxed AND we are strictly full.
+        var node = new InternalNode<T>(1, token);
+        node.Children[0] = child;
+        return node;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -937,13 +928,13 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
 
             return new InternalNode<T>(children, sizeTable, 2, token);
         }
-        
+
         var parent = new InternalNode<T>(2, token);
         parent.Children[0] = left;
         parent.Children[1] = right;
         return parent;
     }
-    
+
     // This is a method to get the child index. If the node is dense it does a regular dense search
     // if it is relaxed, it uses AVX to search 8 elements at a time.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -953,22 +944,22 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
         // Dense / Balanced Path (No SizeTable)
         if ((node.Flags & NodeFlags.IsRelaxed) == 0)
         {
-            int childIndex = (index >> shift) & Constants.RRB_MASK;
-            int childStart = childIndex << shift;
+            var childIndex = (index >> shift) & Constants.RRB_MASK;
+            var childStart = childIndex << shift;
             return (childIndex, index - childStart);
         }
 
         return GetRelaxedIndexAvx(node, index, shift);
     }
-    
-    
+
+
     // The relaxed continuation of above
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static unsafe (int childIndex, int relativeIndex) GetRelaxedIndexAvx<T>(InternalNode<T> node, int index,
         int shift)
     {
         int len = node.Len;
-        int i = 0;
+        var i = 0;
 
         // I could see no benefit of this
         // if (Avx512F.IsSupported && len >= 16)
@@ -1003,7 +994,7 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
         //         }
         //     }
         // }
-        
+
         // Use AVX2 if supported and profitable (at least one vector worth of data)
         // This is at no cost to the old kind of indexing.
         if (Avx2.IsSupported && len >= 8)
@@ -1024,95 +1015,42 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
                     var vResult = Avx2.CompareGreaterThan(vTable, vIndex);
 
                     // Extract sign bits to a generic integer mask (8 bits, one per element)
-                    int mask = Avx.MoveMask(vResult.AsSingle());
+                    var mask = Avx.MoveMask(vResult.AsSingle());
 
                     if (mask != 0)
                     {
                         // Found a match in this chunk.
                         // The first set bit corresponds to the first element > index.
-                        int offset = BitOperations.TrailingZeroCount(mask);
-                        int matchIndex = i + offset;
+                        var offset = BitOperations.TrailingZeroCount(mask);
+                        var matchIndex = i + offset;
 
-                        int prevCount = matchIndex > 0 ? tablePtr[matchIndex - 1] : 0;
+                        var prevCount = matchIndex > 0 ? tablePtr[matchIndex - 1] : 0;
                         return (matchIndex, index - prevCount);
                     }
                 }
             }
         }
-        
+
         // Handles remaining elements (if len % 8 != 0) or systems without AVX2.
         // Also handles the case where the index is beyond the total size (i hits len).
         var table = node.SizeTable!;
-        while (i < len && table[i] <= index)
-        {
-            i++;
-        }
+        while (i < len && table[i] <= index) i++;
 
-        int prev = i > 0 ? table[i - 1] : 0;
+        var prev = i > 0 ? table[i - 1] : 0;
         return (i, index - prev);
     }
-    
-    
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static InternalNode<T> AsInternal<T>(Node<T> node) => Unsafe.As<InternalNode<T>>(node);
+
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static LeafNode<T> AsLeaf<T>(Node<T> node) => Unsafe.As<LeafNode<T>>(node);
-
-
-    public static (Node<T>? NewNode, LeafNode<T> PromotedTail) PromoteTail<T>(Node<T> node, int shift,
-        OwnerId token)
+    internal static InternalNode<T> AsInternal<T>(Node<T> node)
     {
-        // Base Case: We are at the leaf level. 
-        // This entire node becomes the promoted tail.
-        if (shift == 0) return (null, AsLeaf(node));
-        
-        // From here we know the node is internal, since leaf nodes are handled above.
-        var internalNode = AsInternal(node);
-        var lastIdx = internalNode.Len - 1;
-        var lastChild = internalNode.Children[lastIdx]!;
+        return Unsafe.As<InternalNode<T>>(node);
+    }
 
-        // Recurse down the right edge
-        var (newLastChild, promotedTail) = PromoteTail(lastChild, shift - Constants.RRB_BITS, token);
-
-        // If the child was fully consumed (it became the tail), we shrink this node
-        // If the child remains (it gave up a descendant to be the tail), we keep size but update child
-        var newLen = newLastChild == null ? lastIdx : internalNode.Len;
-
-        // If this node becomes empty, return null so the parent knows to remove it too
-        if (newLen == 0) return (null, promotedTail);
-
-
-        // Reconstruct this Node
-
-        // Copy Children
-        var newChildren = new Node<T>?[newLen];
-        Array.Copy(internalNode.Children, newChildren, newLen);
-
-        if (newLastChild != null) newChildren[lastIdx] = newLastChild;
-
-        // Handle SizeTable
-        // If we didn't have one, we don't need one (removing from the right preserves dense prefix).
-        // If we DID have one, we must update it.
-        int[]? newSizeTable = null;
-
-        if (internalNode.SizeTable != null)
-        {
-            newSizeTable = new int[newLen];
-            // Copy the table up to the new length
-            Array.Copy(internalNode.SizeTable, newSizeTable, newLen);
-
-            if (newLastChild != null)
-                // If the last child still exists, it is smaller now. 
-                // We reduce the cumulative total at this index by the size of the removed tail.
-                newSizeTable[lastIdx] -= promotedTail.Len;
-            // If newLastChild is null, we just chopped off the last entry of the table, 
-            // which correctly represents the new cumulative total of the previous sibling.
-        }
-
-        var newNode = new InternalNode<T>(newChildren, newSizeTable, newLen, token);
-        return (newNode, promotedTail);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static LeafNode<T> AsLeaf<T>(Node<T> node)
+    {
+        return Unsafe.As<LeafNode<T>>(node);
     }
 
 
@@ -1143,8 +1081,8 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
         var internalNode = (InternalNode<T>)node;
         var (childIndex, subIndex) = GetChildIndexAvx(internalNode, index, shift);
 
-        Node<T> child = internalNode.Children[childIndex]!;
-        Node<T>? newChild = RemoveRecursive(child, subIndex, shift - Constants.RRB_BITS);
+        var child = internalNode.Children[childIndex]!;
+        var newChild = RemoveRecursive(child, subIndex, shift - Constants.RRB_BITS);
 
 
         // Best case: The child became empty (remove it from children array)
@@ -1153,7 +1091,7 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
             // If this was the only child, this node also becomes empty
             if (internalNode.Len == 1) return null;
 
-            int newLen = internalNode.Len - 1;
+            var newLen = internalNode.Len - 1;
             var newChildren = new Node<T>?[newLen];
 
             // Copy children before
@@ -1165,7 +1103,7 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
                 Array.Copy(internalNode.Children, childIndex + 1, newChildren, childIndex, newLen - childIndex);
 
             // Unless we update the sizetable after removing a node, we will get a lot of nagging
-            int[] newSizeTable = new int[newLen];
+            var newSizeTable = new int[newLen];
 
             if (internalNode.SizeTable != null)
             {
@@ -1175,26 +1113,22 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
 
                 // Copy part after, subtracting 1 from all cumulative counts
                 // (We removed exactly 1 item from the tree below)
-                for (int i = childIndex; i < newLen; i++)
-                {
-                    newSizeTable[i] = internalNode.SizeTable[i + 1] - 1;
-                }
+                for (var i = childIndex; i < newLen; i++) newSizeTable[i] = internalNode.SizeTable[i + 1] - 1;
             }
             else
             {
                 // Convert Dense -> Relaxed
-                int childShift = shift - Constants.RRB_BITS;
+                var childShift = shift - Constants.RRB_BITS;
 
                 // Reconstruct table. 
                 // RemoveRecursive removes ONE item. If the child returns null, it means 
                 // that child contained ONLY that one item.
                 // So we subtract 1 from the total.
 
-                int currentSum = 0;
+                var currentSum = 0;
                 // Iterate over the new structure (skipping the removed child)
-                for (int i = 0; i < newLen; i++)
+                for (var i = 0; i < newLen; i++)
                 {
-
                     // If the old child was Dense, its size was blockSize.
                     // But we know internalNode was Dense, so all children (except last) were full.
                     // Actually, simply: We iterate the new children and ask for their size.
@@ -1221,7 +1155,7 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
 
             // Update SizeTable
             // We removed exactly 1 item.
-            int[] newSizeTable = new int[newLen];
+            var newSizeTable = new int[newLen];
 
             if (internalNode.SizeTable != null)
             {
@@ -1230,20 +1164,17 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
 
                 // Adjust current and after
                 newSizeTable[childIndex] = internalNode.SizeTable[childIndex] - 1;
-                for (int i = childIndex + 1; i < newLen; i++)
-                {
-                    newSizeTable[i] = internalNode.SizeTable[i] - 1;
-                }
+                for (var i = childIndex + 1; i < newLen; i++) newSizeTable[i] = internalNode.SizeTable[i] - 1;
             }
             else
             {
                 // Dense -> Relaxed
                 // We must build the table because index arithmetic breaks.
-                int childShift = shift - Constants.RRB_BITS;
-                int blockSize = 1 << shift;
+                var childShift = shift - Constants.RRB_BITS;
+                var blockSize = 1 << shift;
 
-                int currentSum = 0;
-                for (int i = 0; i < newLen; i++)
+                var currentSum = 0;
+                for (var i = 0; i < newLen; i++)
                 {
                     if (i == childIndex)
                     {
@@ -1253,7 +1184,7 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
                         if (i == newLen - 1)
                             currentSum += CountTree(newChild, childShift);
                         else
-                            currentSum += (blockSize - 1);
+                            currentSum += blockSize - 1;
                     }
                     else if (i == newLen - 1)
                     {
@@ -1272,13 +1203,6 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
 
             return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
         }
-    }
-
-    // Helper return struct to avoid Tuple allocation
-    internal readonly struct InsertResult<T>(Node<T> newNode, Node<T>? overflow = null)
-    {
-        public readonly Node<T> NewNode = newNode;
-        public readonly Node<T>? Overflow = overflow; // If not null, the node split
     }
 
 
@@ -1371,21 +1295,17 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
                 // If we modified childIndex, we need its new seize
                 // Old size was 'blockSize' (because it's a middle child of a Dense node).
                 // New size is blockSize + 1.
-                
+
                 // 2. The Modified Child
                 // Do not assume 'blockSize + 1'. If we are fixing a Size 1 node (childIndex == Len-1),
                 // the old size was NOT necessarily blockSize.
                 if (childIndex < internalNode.Len - 1)
-                {
                     // Middle child was definitely full before.
                     currentSum += blockSize + 1;
-                }
                 else
-                {
                     // Last child was potentially partial. Calculate actual new size.
                     // We can trust GetTotalSize because we are in the "no split" zone.
                     currentSum += GetTotalSize(result.NewNode, childShift);
-                }
                 newSizeTable[childIndex] = currentSum;
 
                 // Handle Children after the modified index
@@ -1402,7 +1322,7 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
                     newSizeTable[i] = currentSum;
                 }
             }
-            
+
             return new InsertResult<T>(new InternalNode<T>(newChildren, newSizeTable, internalNode.Len, OwnerId.None));
         }
 
@@ -1567,4 +1487,10 @@ private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> nod
         return 1 << (childShift + Constants.RRB_BITS);
     }
 
+    // Helper return struct to avoid Tuple allocation
+    internal readonly struct InsertResult<T>(Node<T> newNode, Node<T>? overflow = null)
+    {
+        public readonly Node<T> NewNode = newNode;
+        public readonly Node<T>? Overflow = overflow; // If not null, the node split
+    }
 }

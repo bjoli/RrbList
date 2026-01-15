@@ -12,8 +12,9 @@
 // While I don't personally consider tweaking these constants as changing the code enough to trigger
 // any clause in the MPL to make you have to reshare, this should probably be solved somehow.
 
-namespace Collections;
 using System.Runtime.InteropServices;
+
+namespace Collections;
 
 internal static class Constants
 {
@@ -39,14 +40,13 @@ internal static class Constants
     public const int FAT_TAIL_SIZE = 1024;
 }
 
-
 [StructLayout(LayoutKind.Auto, Pack = 1)]
 internal readonly struct OwnerId : IEquatable<OwnerId>
 {
     // Global monotonic counter
     private static long _globalCounter = 1;
 
-    public readonly uint Id;    // 4 bytes
+    public readonly uint Id; // 4 bytes
     public readonly ushort Gen; // 2 bytes
     // Total Size: 6 Bytes
 
@@ -69,9 +69,28 @@ internal readonly struct OwnerId : IEquatable<OwnerId>
     // Returns true if 'this' ID was generated before 'other' ID.
     // This allows us to treat older nodes as immutable without touching them.
 
-    public bool Equals(OwnerId other) => Id == other.Id && Gen == other.Gen;
-    public override bool Equals(object? obj) => obj is OwnerId other && Equals(other);
-    public override int GetHashCode() => HashCode.Combine(Id, Gen);
-    public static bool operator ==(OwnerId left, OwnerId right) => left.Equals(right);
-    public static bool operator !=(OwnerId left, OwnerId right) => !left.Equals(right);
+    public bool Equals(OwnerId other)
+    {
+        return Id == other.Id && Gen == other.Gen;
+    }
+
+    public override bool Equals(object? obj)
+    {
+        return obj is OwnerId other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(Id, Gen);
+    }
+
+    public static bool operator ==(OwnerId left, OwnerId right)
+    {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(OwnerId left, OwnerId right)
+    {
+        return !left.Equals(right);
+    }
 }
