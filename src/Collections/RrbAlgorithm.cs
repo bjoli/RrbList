@@ -496,7 +496,7 @@ internal static class RrbAlgorithm
         return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, OwnerId.None);
     }
 
-    private static int CountTree<T>(Node<T> node, int shift)
+    internal static int CountTree<T>(Node<T> node, int shift)
     {
         var totalSize = 0;
 
@@ -790,7 +790,7 @@ internal static class RrbAlgorithm
                 // Dense node that is physically full (Len 32) but structurally partial.
                 // However, checking the physical size is usually enough here:
                 var lastChild = node.Children[node.Len - 1]!;
-                var totalSize = GetTotalSize(lastChild, shift - Constants.RRB_BITS);
+                var totalSize = CountTree(lastChild, shift - Constants.RRB_BITS);
                 if (totalSize < 1 << shift)
                     requiresRelaxation = true;
             }
@@ -819,7 +819,7 @@ internal static class RrbAlgorithm
 
             var addedSize = shift == Constants.RRB_BITS
                 ? AsLeaf(childToAdd).Len
-                : GetTotalSize(childToAdd, shift - Constants.RRB_BITS);
+                : CountTree(childToAdd, shift - Constants.RRB_BITS);
 
             editable.SizeTable![editable.Len] = prevTotal + addedSize;
         }
@@ -858,7 +858,7 @@ internal static class RrbAlgorithm
                 // Last child: Calculate actual size
                 // (We can assume the last child is Dense because the parent was Dense)
                 currentSum += CountTree(node.Children[i]!, childShift);
-            // Or use RrbAlgorithm.GetTotalSize which handles the flags check
+            // Or use RrbAlgorithm.CountTree which handles the flags check
             newTable[i] = currentSum;
         }
 
@@ -882,7 +882,7 @@ internal static class RrbAlgorithm
         // it might be a Dense node with 32 children where the last one is sparse
         var denseNode = AsInternal(node);
         var fullParams = (denseNode.Len - 1) * (1 << shift);
-        var lastChildSize = GetTotalSize(denseNode.Children[denseNode.Len - 1]!, shift - Constants.RRB_BITS);
+        var lastChildSize = CountTree(denseNode.Children[denseNode.Len - 1]!, shift - Constants.RRB_BITS);
         return fullParams + lastChildSize;
     }
 
@@ -1378,8 +1378,8 @@ internal static class RrbAlgorithm
                     currentSum += blockSize + 1;
                 else
                     // Last child was potentially partial. Calculate actual new size.
-                    // We can trust GetTotalSize because we are in the "no split" zone.
-                    currentSum += GetTotalSize(result.NewNode, childShift);
+                    // We can trust CountTree because we are in the "no split" zone.
+                    currentSum += CountTree(result.NewNode, childShift);
                 newSizeTable[childIndex] = currentSum;
 
                 // Handle Children after the modified index
@@ -1423,8 +1423,8 @@ internal static class RrbAlgorithm
                 Array.Copy(internalNode.SizeTable, newSizeTable, childIndex);
 
                 var prevTotal = childIndex > 0 ? newSizeTable[childIndex - 1] : 0;
-                var leftSize = GetTotalSize(result.NewNode, shift - Constants.RRB_BITS);
-                var rightSize = GetTotalSize(result.Overflow, shift - Constants.RRB_BITS);
+                var leftSize = CountTree(result.NewNode, shift - Constants.RRB_BITS);
+                var rightSize = CountTree(result.Overflow, shift - Constants.RRB_BITS);
 
                 newSizeTable[childIndex] = prevTotal + leftSize;
                 newSizeTable[childIndex + 1] = prevTotal + leftSize + rightSize;
@@ -1449,10 +1449,10 @@ internal static class RrbAlgorithm
                 }
 
                 // Measure the split children
-                currentSum += GetTotalSize(result.NewNode, childShift);
+                currentSum += CountTree(result.NewNode, childShift);
                 newSizeTable[childIndex] = currentSum;
 
-                currentSum += GetTotalSize(result.Overflow, childShift);
+                currentSum += CountTree(result.Overflow, childShift);
                 newSizeTable[childIndex + 1] = currentSum;
 
                 // Children after split (Shifted, Last one might be partial)
@@ -1543,8 +1543,8 @@ internal static class RrbAlgorithm
         Node<T> newRight,
         int childShift)
     {
-        if (virtualIndex == splitIndex) return GetTotalSize(newLeft, childShift);
-        if (virtualIndex == splitIndex + 1) return GetTotalSize(newRight, childShift);
+        if (virtualIndex == splitIndex) return CountTree(newLeft, childShift);
+        if (virtualIndex == splitIndex + 1) return CountTree(newRight, childShift);
 
         var originalIndex = virtualIndex < splitIndex ? virtualIndex : virtualIndex - 1;
 

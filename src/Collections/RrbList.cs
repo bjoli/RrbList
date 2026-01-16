@@ -275,7 +275,7 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
             else
             {
                 if (childIdx == internalNode.Len - 1)
-                    childSize = RrbAlgorithm.GetTotalSize(child, shift - Constants.RRB_BITS);
+                    childSize = RrbAlgorithm.CountTree(child, shift - Constants.RRB_BITS);
                 else
                     childSize = 1 << shift;
             }
@@ -716,8 +716,8 @@ public sealed partial class RrbList<T> : ICollection<T> where T : notnull
 
             // Calculate sizes for the new root
             var sizes = new int[2];
-            sizes[0] = RrbAlgorithm.GetTotalSize(result.NewNode, Shift);
-            sizes[1] = sizes[0] + RrbAlgorithm.GetTotalSize(result.Overflow, Shift);
+            sizes[0] = RrbAlgorithm.CountTree(result.NewNode, Shift);
+            sizes[1] = sizes[0] + RrbAlgorithm.CountTree(result.Overflow, Shift);
 
             treeRoot = new InternalNode<T>(children, sizes, 2, OwnerId.None);
         }
