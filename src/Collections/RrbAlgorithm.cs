@@ -526,60 +526,6 @@ internal static class RrbAlgorithm
         // We add the actual number of elements in the final leaf.
         return totalSize + node.Len;
     }
-    
-    public static (Node<T>? NewNode, LeafNode<T> PromotedTail) PromoteTail<T>(Node<T> node, int shift,
-        OwnerId token)
-    {
-        // Base Case: We are at the leaf level. 
-        // This entire node becomes the promoted tail.
-        if (shift == 0) return (null, AsLeaf(node));
-        
-        // From here we know the node is internal, since leaf nodes are handled above.
-        var internalNode = AsInternal(node);
-        var lastIdx = internalNode.Len - 1;
-        var lastChild = internalNode.Children[lastIdx]!;
-
-        // Recurse down the right edge
-        var (newLastChild, promotedTail) = PromoteTail(lastChild, shift - Constants.RRB_BITS, token);
-
-        // If the child was fully consumed (it became the tail), we shrink this node
-        // If the child remains (it gave up a descendant to be the tail), we keep size but update child
-        var newLen = newLastChild == null ? lastIdx : internalNode.Len;
-
-        // If this node becomes empty, return null so the parent knows to remove it too
-        if (newLen == 0) return (null, promotedTail);
-
-
-        // Reconstruct this Node
-
-        // Copy Children
-        var newChildren = new Node<T>?[newLen];
-        Array.Copy(internalNode.Children, newChildren, newLen);
-
-        if (newLastChild != null) newChildren[lastIdx] = newLastChild;
-
-        // Handle SizeTable
-        // If we didn't have one, we don't need one (removing from the right preserves dense prefix).
-        // If we DID have one, we must update it.
-        int[]? newSizeTable = null;
-
-        if (internalNode.SizeTable != null)
-        {
-            newSizeTable = new int[newLen];
-            // Copy the table up to the new length
-            Array.Copy(internalNode.SizeTable, newSizeTable, newLen);
-
-            if (newLastChild != null)
-                // If the last child still exists, it is smaller now. 
-                // We reduce the cumulative total at this index by the size of the removed tail.
-                newSizeTable[lastIdx] -= promotedTail.Len;
-            // If newLastChild is null, we just chopped off the last entry of the table, 
-            // which correctly represents the new cumulative total of the previous sibling.
-        }
-
-        var newNode = new InternalNode<T>(newChildren, newSizeTable, newLen, token);
-        return (newNode, promotedTail);
-    }
 
     private static InternalNode<T> CopyInternal<T>(InternalNode<T> orig, int start, int len)
     {
