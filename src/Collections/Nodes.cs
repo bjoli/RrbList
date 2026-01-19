@@ -27,6 +27,16 @@ internal abstract class Node<T>
     public OwnerId Owner; // 6 bytes
     public byte Len; // 1 byte
     public NodeFlags Flags; // 1 byte
+
+    public bool IsLeaf()
+    {
+        return (Flags & NodeFlags.IsLeaf) == 0;
+    }
+
+    public bool IsRelaxed()
+    {
+        return (Flags & NodeFlags.IsRelaxed) == 0;
+    }
 }
 
 [StructLayout(LayoutKind.Auto, Pack = 1)]

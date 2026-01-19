@@ -7,7 +7,42 @@ namespace Collections;
 
 internal static class RrbAlgorithm
 {
-    // This is the hairy part compared to clojure's balanced tries. 
+    public static Node<T> Update<T>(Node<T> root, int index, T value, int shift, OwnerId token)
+    {
+        // Tree is not a tree.
+        if (shift == 0)
+        {
+            var leaf = (LeafNode<T>)root;
+
+            // Direct CloneAndSet for persistent
+            if (token.IsNone)
+                return leaf.CloneAndSet(index & Constants.RRB_MASK, value);
+
+            // Transient path
+            leaf = leaf.EnsureEditable(token);
+            leaf.Items[index & Constants.RRB_MASK] = value;
+            return leaf;
+        }
+
+        var internalNode = (InternalNode<T>)root;
+
+        var (childIndex, subIndex) = GetChildIndexAvx(internalNode, index, shift);
+
+        if (childIndex >= internalNode.Len) throw new IndexOutOfRangeException();
+
+        var child = internalNode.Children[childIndex]!;
+        var newChild = Update(child, subIndex, value, shift - Constants.RRB_BITS, token);
+
+        if (token.IsNone)
+            // Cone your way back up
+            return internalNode.CloneAndSetChild(childIndex, newChild);
+
+        internalNode = internalNode.EnsureEditable(token);
+        internalNode.Children[childIndex] = newChild;
+        return internalNode;
+    }
+    
+        // This is the hairy part compared to clojure's balanced tries. 
     // It alculates a redistribution plan for a set of nodes to restore the RRB tree invariants.
     // This method implements the "Search and Redistribute" algorithm found in the original C implementation.
     // It iterates through the list of children and identifies nodes that are underfilled. This is defined
@@ -63,53 +98,84 @@ internal static class RrbAlgorithm
 
         topLen = shuffledLen;
     }
-
-
-    public static Node<T> Update<T>(Node<T> root, int index, T value, int shift, OwnerId token)
+    
+    
+    private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, Span<int> plan, int slen, int shift)
     {
-        // Tree is not a tree.
-        if (shift == 0)
+        var newChildren = new Node<T>?[slen];
+        var idx = 0;
+        var offset = 0;
+
+        var shufflingLeaves = shift == Constants.RRB_BITS;
+
+        for (var i = 0; i < slen; i++)
         {
-            var leaf = (LeafNode<T>)root;
+            var newSize = plan[i];
 
-            // Direct CloneAndSet for persistent
-            if (token.IsNone)
-                return leaf.CloneAndSet(index & Constants.RRB_MASK, value);
+            if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
+            {
+                newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
+                idx++;
+                continue;
+            }
 
-            // Transient path
-            leaf = leaf.EnsureEditable(token);
-            leaf.Items[index & Constants.RRB_MASK] = value;
-            return leaf;
+            if (shufflingLeaves)
+            {
+                var newItems = new T[newSize];
+                var curSize = 0;
+
+                while (curSize < newSize)
+                {
+                    var srcLeaf = AsLeaf(all[idx]);
+                    var available = srcLeaf.Len - offset;
+                    var toCopy = Math.Min(available, newSize - curSize);
+
+                    Array.Copy(srcLeaf.Items, offset, newItems, curSize, toCopy);
+
+                    curSize += toCopy;
+                    offset += toCopy;
+                    if (offset == srcLeaf.Len)
+                    {
+                        idx++;
+                        offset = 0;
+                    }
+                }
+
+                newChildren[i] = new LeafNode<T>(newItems, newSize, OwnerId.None);
+            }
+            else
+            {
+                var newSubChildren = new Node<T>?[newSize];
+                var curSize = 0;
+
+                while (curSize < newSize)
+                {
+                    // If 'all[idx]' is a LeafNode here, something is wrong with the shift logic
+                    // or we are dealing with the "center split" logic incorrectly.
+                    // Assuming all[idx] is InternalNode
+                    var srcInternal = (InternalNode<T>)all[idx];
+                    var available = srcInternal.Len - offset;
+                    var toCopy = Math.Min(available, newSize - curSize);
+
+                    Array.Copy(srcInternal.Children, offset, newSubChildren, curSize, toCopy);
+
+                    curSize += toCopy;
+                    offset += toCopy;
+                    if (offset == srcInternal.Len)
+                    {
+                        idx++;
+                        offset = 0;
+                    }
+                }
+
+                var newNode = new InternalNode<T>(newSubChildren, null, newSize, OwnerId.None);
+                newChildren[i] = SetSizes(newNode, shift - Constants.RRB_BITS);
+            }
         }
 
-        var internalNode = (InternalNode<T>)root;
-
-        var (childIndex, subIndex) = GetChildIndexAvx(internalNode, index, shift);
-
-        if (childIndex >= internalNode.Len) throw new IndexOutOfRangeException();
-
-        var child = internalNode.Children[childIndex]!;
-        var newChild = Update(child, subIndex, value, shift - Constants.RRB_BITS, token);
-
-        if (token.IsNone)
-            // Cone your way back up
-            return internalNode.CloneAndSetChild(childIndex, newChild);
-
-        internalNode = internalNode.EnsureEditable(token);
-        internalNode.Children[childIndex] = newChild;
-        return internalNode;
+        return new InternalNode<T>(newChildren, null, slen, OwnerId.None);
     }
 
-
-    // TODO: remove this and fix Merge.
-    public static Node<T> FlushTail<T>(Node<T>? root, LeafNode<T> tail, int treeCount, ref int shift)
-    {
-        if (tail.Len == 0) return root!; // Caller should handle null
-
-        // Reuse the append logic
-        // We pass null for token because FlushTail is usually a persistent op (Merge)
-        return AppendLeafToTree(root, tail, ref shift, OwnerId.None);
-    }
 
     public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShift, int rightShift,
         out int newShift)
@@ -385,83 +451,6 @@ internal static class RrbAlgorithm
 //     return SetSizes(parent, newShift);
 // }
 
-    private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, Span<int> plan, int slen, int shift)
-    {
-        var newChildren = new Node<T>?[slen];
-        var idx = 0;
-        var offset = 0;
-
-        var shufflingLeaves = shift == Constants.RRB_BITS;
-
-        for (var i = 0; i < slen; i++)
-        {
-            var newSize = plan[i];
-
-            if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
-            {
-                newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
-                idx++;
-                continue;
-            }
-
-            if (shufflingLeaves)
-            {
-                var newItems = new T[newSize];
-                var curSize = 0;
-
-                while (curSize < newSize)
-                {
-                    var srcLeaf = AsLeaf(all[idx]);
-                    var available = srcLeaf.Len - offset;
-                    var toCopy = Math.Min(available, newSize - curSize);
-
-                    Array.Copy(srcLeaf.Items, offset, newItems, curSize, toCopy);
-
-                    curSize += toCopy;
-                    offset += toCopy;
-                    if (offset == srcLeaf.Len)
-                    {
-                        idx++;
-                        offset = 0;
-                    }
-                }
-
-                newChildren[i] = new LeafNode<T>(newItems, newSize, OwnerId.None);
-            }
-            else
-            {
-                var newSubChildren = new Node<T>?[newSize];
-                var curSize = 0;
-
-                while (curSize < newSize)
-                {
-                    // If 'all[idx]' is a LeafNode here, something is wrong with the shift logic
-                    // or we are dealing with the "center split" logic incorrectly.
-                    // Assuming all[idx] is InternalNode
-                    var srcInternal = (InternalNode<T>)all[idx];
-                    var available = srcInternal.Len - offset;
-                    var toCopy = Math.Min(available, newSize - curSize);
-
-                    Array.Copy(srcInternal.Children, offset, newSubChildren, curSize, toCopy);
-
-                    curSize += toCopy;
-                    offset += toCopy;
-                    if (offset == srcInternal.Len)
-                    {
-                        idx++;
-                        offset = 0;
-                    }
-                }
-
-                var newNode = new InternalNode<T>(newSubChildren, null, newSize, OwnerId.None);
-                newChildren[i] = SetSizes(newNode, shift - Constants.RRB_BITS);
-            }
-        }
-
-        return new InternalNode<T>(newChildren, null, slen, OwnerId.None);
-    }
-
-
     private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
     {
         Span<int> sizes = stackalloc int[node.Len];
@@ -533,106 +522,187 @@ internal static class RrbAlgorithm
         Array.Copy(orig.Children, start, newArr, 0, len);
         return new InternalNode<T>(newArr, null, len, OwnerId.None);
     }
-
-    public static Node<T> SliceLeft<T>(Node<T> root, int toDrop, int shift)
+    
+    /// <summary>
+    /// Optimized single-pass Slice.
+    /// 1. LCA Descent: Skips parent nodes that don't split the range.
+    /// 2. Single Pass: Constructs the result by merging Left, Middle, and Right parts in one allocation.
+    /// 3. Squash: Automatically reduces tree height if the root collapses.
+    /// 4. Density Check: Avoids SizeTable allocation if the node remains dense (e.g. Take(N)).
+    /// </summary>
+    public static Node<T>? Slice<T>(Node<T> root, int start, int count, ref int shift, out T[] promotedTail, out int promotedTailLen)
     {
-        if (toDrop == 0) return root;
-        // Note: Caller guarantees toDrop < total count
-        return SliceLeftRec(root, toDrop, shift);
+        // --- 2. LCA Descent: As long as start and end is in the same node, we go down!
+        var node = root;
+        var end = start + count;
+
+        while (shift > 0)
+        {
+            var internalNode = AsInternal(node);
+            var (startIdx, startSubIdx) = GetChildIndexAvx(internalNode, start, shift);
+            var (endIdx, _) = GetChildIndexAvx(internalNode, end - 1, shift);
+
+            if (startIdx != endIdx) break; 
+
+            // Descend
+            node = internalNode.Children[startIdx]!;
+            
+            var offset = start - startSubIdx;
+            start = startSubIdx;
+            end -= offset;
+            
+            shift -= Constants.RRB_BITS;
+        }
+
+        // --- 3. Execute Split ---
+        var (newNode, tailArray, tailLen) = SliceNode(node, start, end, shift);
+        promotedTail = tailArray;
+        promotedTailLen = tailLen;
+
+        // --- 4. Squash: despite doing DCA, the tail promotion might collapse the root. 
+        if (newNode != null)
+        {
+            while (!newNode!.IsLeaf() && newNode.Len == 1 && shift > 0)
+            {
+                newNode = AsInternal(newNode).Children[0];
+                shift -= Constants.RRB_BITS;
+            }
+        }
+
+        return newNode;
     }
 
-    /// <summary>
-    ///     Slices the tree at 'limit'.
-    ///     If the resulting rightmost leaf is Partial (less than 32), it is detached and returned as PromotedTail.
-    ///     If the resulting rightmost leaf is Full (32), it stays in the tree (PromotedTail is Empty).
-    /// </summary>
-    public static (Node<T>? NewTree, LeafNode<T> PromotedTail) SliceRightAndPromote<T>(Node<T> node, int limit,
-        int shift)
+    private static (Node<T>? NewNode, T[] TailArray, int TailLen) SliceNode<T>(Node<T> node, int start, int end, int shift)
     {
-        // --- Base Case: Leaf ---
+        // Base Case: Leaf Node
         if (shift == 0)
         {
             var leaf = AsLeaf(node);
+            var len = end - start;
 
-            // Optimization: If taking the exact existing leaf
-            if (leaf.Len == limit)
-                return limit < Constants.RRB_BRANCHING
-                    ? (null, leaf) // It's partial -> Promote it
-                    : (leaf, LeafNode<T>.Empty); // It's full -> Keep it
+            // Optimization: If preserving exact leaf
+            if (len == leaf.Len)
+            {
+                if (len < Constants.RRB_BRANCHING) 
+                    return (null, leaf.Items, leaf.Len); // Promote to tail (Pass raw array)
+                
+                return (leaf, Array.Empty<T>(), 0); // Keep in tree
+            }
 
-            // Otherwise, Create the slice
-            var newItems = new T[limit];
-            Array.Copy(leaf.Items, 0, newItems, 0, limit);
-            var newLeaf = new LeafNode<T>(newItems, limit, OwnerId.None);
+            // Standard Slice
+            var newItems = new T[len];
+            Array.Copy(leaf.Items, start, newItems, 0, len);
 
-            return limit < Constants.RRB_BRANCHING
-                ? (null, newLeaf)
-                : (newLeaf, LeafNode<T>.Empty);
+            if (len < Constants.RRB_BRANCHING) 
+                return (null, newItems, len); // Promote to tail
+            
+            return (new LeafNode<T>(newItems, len, OwnerId.None), Array.Empty<T>(), 0);
         }
 
-        // --- Recursive Step: Internal ---
         var internalNode = AsInternal(node);
+        var (startIdx, startSubIdx) = GetChildIndexAvx(internalNode, start, shift);
+        var (endIdx, endSubIdx) = GetChildIndexAvx(internalNode, end - 1, shift);
+        
+        var limitInChild = endSubIdx + 1;
 
-        // Find which child contains the 'limit' boundary
-        var (childIdx, idxInChild) = GetChildIndexAvx(internalNode, limit - 1, shift);
-
-        // Recurse strictly on that child
-        var limitInChild = idxInChild + 1;
-        var (childResult, promotedTail) =
-            SliceRightAndPromote(internalNode.Children[childIdx]!, limitInChild, shift - Constants.RRB_BITS);
-
-        // --- Reconstruct the Node ---
-
-        // 1. Determine new length of this node
-        // If childResult is null, it means the child was fully consumed (promoted).
-        // So this node loses that child.
-        var newLen = childResult == null ? childIdx : childIdx + 1;
-
-        if (newLen == 0)
-            // If we lost the only child, this node disappears too.
-            return (null, promotedTail);
-
-        // 2. Allocate and Copy Children
-        var newChildren = new Node<T>?[newLen];
-
-        // Copy preceding children (they are untouched)
-        // Optimization: Use Array.Copy for speed
-        if (childIdx > 0)
-            Array.Copy(internalNode.Children, 0, newChildren, 0, Math.Min(childIdx, newLen));
-
-        // If the child was modified (not removed), place it
-        if (childResult != null)
-            newChildren[childIdx] = childResult;
-
-        // 3. Handle SizeTable (Preserve Density Optimization)
-        // logic: If the node was Dense, and we chopped off the right side...
-        // The new last child is either:
-        //    a) The old last child (sliced). 
-        //       If it stayed, it is FULL (because if it was partial, it would be promoted).
-        //    b) A previous sibling. 
-        //       Previous siblings of a Dense node are always FULL.
-        // THEREFORE: The resulting node is ALWAYS Dense. We do not need to generate a table.
-
-        // The ONLY exception is if the original node had a SizeTable (was relaxed).
-        // Then we must preserve/update it.
-
-        int[]? newSizeTable = null;
-        if (internalNode.SizeTable != null)
+        // 1. Recurse Edges
+        // If startSubIdx is 0, we are taking the whole child, so no left recursion needed.
+        Node<T>? leftResult = null;
+        if (startSubIdx > 0)
         {
-            newSizeTable = new int[newLen];
-            Array.Copy(internalNode.SizeTable, newSizeTable, newLen);
-
-            // Update the last entry to reflect the exact cut
-            // The size at this boundary is exactly 'limit', MINUS whatever we promoted.
-            int tailSize = promotedTail.Len; // 0 if empty
-            newSizeTable[newLen - 1] = limit - tailSize;
+            leftResult = SliceLeftRec(internalNode.Children[startIdx]!, startSubIdx, shift - Constants.RRB_BITS);
         }
 
-        var newNode = new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
-        return (newNode, promotedTail);
-    }
+        T[]? tailArray;
+        int tailLen;
+        var rightResult= SliceRightAndPromote(internalNode.Children[endIdx]!, limitInChild, shift - Constants.RRB_BITS, out tailArray, out tailLen);
 
-    private static Node<T> SliceLeftRec<T>(Node<T> node, int toDrop, int shift)
+
+        // 2. Reconstruct Node
+        var hasLeft = leftResult != null;
+        var hasRight = rightResult != null;
+        
+        // Calculate Middle
+        // If startSubIdx == 0, we include startIdx as a "middle" (full) child.
+        // If startSubIdx > 0, startIdx was handled by leftResult.
+        var startMiddle = (startSubIdx == 0) ? startIdx : startIdx + 1;
+        var middleCount = Math.Max(0, endIdx - startMiddle);
+        
+        var newLen = (hasLeft ? 1 : 0) + middleCount + (hasRight ? 1 : 0);
+        if (newLen == 0) return (null, tailArray, tailLen);
+
+        var newChildren = new Node<T>?[newLen];
+        int writeIdx = 0;
+        
+        // We only allocate a SizeTable if:
+        // 1. The original node was already Relaxed.
+        // 2. We sliced the LEFT edge (creating a partial first child).
+        // If we only sliced the RIGHT edge of a Dense node, it remains Dense (last child allowed to be partial).
+        var isOriginalRelaxed = (internalNode.Flags & NodeFlags.IsRelaxed) != 0;
+        var mustBeRelaxed = isOriginalRelaxed || (startSubIdx > 0);
+
+        int[]? newTable = mustBeRelaxed ? new int[newLen] : null;
+        int currentSum = 0;
+        var originalTable = internalNode.SizeTable; 
+
+        // A. Left Edge (Only exists if startSubIdx > 0)
+        if (hasLeft)
+        {
+            newChildren[writeIdx] = leftResult;
+            if (mustBeRelaxed)
+            {
+                int originalSize = isOriginalRelaxed
+                    ? (originalTable![startIdx] - (startIdx > 0 ? originalTable[startIdx - 1] : 0))
+                    : (1 << shift);
+
+                currentSum += (originalSize - startSubIdx);
+                newTable![writeIdx] = currentSum;
+            }
+            writeIdx++;
+        }
+
+        // B. Middle Children
+        if (middleCount > 0)
+        {
+            // Bulk Copy
+            Array.Copy(internalNode.Children, startMiddle, newChildren, writeIdx, middleCount);
+
+            if (mustBeRelaxed)
+            {
+                for (int i = 0; i < middleCount; i++)
+                {
+                    int origIdx = startMiddle + i;
+                    int size = isOriginalRelaxed
+                        ? (originalTable![origIdx] - (origIdx > 0 ? originalTable[origIdx - 1] : 0))
+                        : (1 << shift);
+
+                    currentSum += size;
+                    newTable![writeIdx++] = currentSum;
+                }
+            }
+            else
+            {
+                writeIdx += middleCount;
+            }
+        }
+
+        // C. Right Edge
+        if (hasRight)
+        {
+            newChildren[writeIdx] = rightResult;
+            if (mustBeRelaxed)
+            {
+                // Size = Kept - Promoted
+                currentSum += (limitInChild - tailLen);
+                newTable![writeIdx] = currentSum;
+            }
+        }
+
+        return (new InternalNode<T>(newChildren, newTable, newLen, OwnerId.None), tailArray, tailLen);
+    }
+    
+    
+     private static Node<T> SliceLeftRec<T>(Node<T> node, int toDrop, int shift)
     {
         // Base Case: Leaf
         if (shift == 0)
@@ -720,6 +790,110 @@ internal static class RrbAlgorithm
 
         return new InternalNode<T>(newChildren, newSizeTable, remainingChildren, OwnerId.None);
     }
+
+    /// <summary>
+    ///     Slices the tree at 'limit'.
+    ///     If the resulting rightmost leaf is Partial (less than 32), it is detached and returned as PromotedTail.
+    ///     If the resulting rightmost leaf is Full (32), it stays in the tree (PromotedTail is Empty).
+    /// </summary>
+    public static Node<T>? SliceRightAndPromote<T>(Node<T> node, int limit, int shift, out T[] promotedTail, out int tailLen)
+{
+    // --- Base Case: Leaf ---
+    if (shift == 0)
+    {
+        var leaf = AsLeaf(node);
+
+        // Optimization: If taking the exact existing leaf
+        if (leaf.Len == limit)
+        {
+            if (limit < Constants.RRB_BRANCHING)
+            {
+                // It's partial -> Promote it
+                promotedTail = leaf.Items;
+                tailLen = leaf.Len;
+                return null;
+            }
+            else
+            {
+                // It's full -> Keep it
+                promotedTail = []; // Or Array.Empty<T>()
+                tailLen = 0;
+                return leaf;
+            }
+        }
+
+        // Otherwise, Create the slice
+        var newItems = new T[limit];
+        Array.Copy(leaf.Items, 0, newItems, 0, limit);
+
+        if (limit < Constants.RRB_BRANCHING)
+        {
+            promotedTail = newItems;
+            tailLen = limit;
+            return null;
+        }
+        else
+        {
+            promotedTail = [];
+            tailLen = 0;
+            return new LeafNode<T>(newItems, limit, OwnerId.None);
+        }
+    }
+
+    // --- Recursive Step: Internal ---
+    var internalNode = AsInternal(node);
+
+    // Find which child contains the 'limit' boundary
+    var (childIdx, idxInChild) = GetChildIndexAvx(internalNode, limit - 1, shift);
+
+    // Recurse strictly on that child
+    // The recursive call writes directly to our out parameters
+    var limitInChild = idxInChild + 1;
+    var childResult = SliceRightAndPromote(internalNode.Children[childIdx]!, limitInChild, shift - Constants.RRB_BITS, out promotedTail, out tailLen);
+
+    // --- Reconstruct the Node ---
+
+    // 1. Determine new length of this node
+    // If childResult is null, it means the child was fully consumed (promoted).
+    var newLen = childResult == null ? childIdx : childIdx + 1;
+
+    if (newLen == 0)
+    {
+        // If we lost the only child, this node disappears too.
+        // promotedTail and tailLen are already set by the recursive call.
+        return null;
+    }
+
+    // 2. Allocate and Copy Children
+    var newChildren = new Node<T>?[newLen];
+
+    // Copy preceding children (they are untouched)
+    if (childIdx > 0)
+        Array.Copy(internalNode.Children, 0, newChildren, 0, Math.Min(childIdx, newLen));
+
+    // If the child was modified (not removed), place it
+    if (childResult != null)
+        newChildren[childIdx] = childResult;
+
+    // 3. Handle SizeTable (Preserve Density Optimization)
+    // If the node was Dense, slicing from the right preserves density (remaining children are still full),
+    // so we only need a SizeTable if the original node was Relaxed.
+    int[]? newSizeTable = null;
+    
+    if (internalNode.SizeTable != null)
+    {
+        newSizeTable = new int[newLen];
+        Array.Copy(internalNode.SizeTable, newSizeTable, newLen);
+
+        // Update the last entry to reflect the exact cut
+        // The size at this boundary is exactly 'limit', MINUS whatever we promoted.
+        // We use the tailLen output from the recursive call here.
+        newSizeTable[newLen - 1] = limit - tailLen;
+    }
+
+    return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
+}
+   
 
 
 // Returns the updated node if the tail could be inserted/merged.
@@ -869,22 +1043,6 @@ internal static class RrbAlgorithm
     }
 
 
-// Helper to get size without crashing. That was a thin
-    internal static int GetTotalSize<T>(Node<T> node, int shift)
-    {
-        if (shift == 0) return node.Len;
-        if ((node.Flags & NodeFlags.IsRelaxed) != 0)
-            // Now we know it's safe to cast and read
-            return Unsafe.As<InternalNode<T>>(node).SizeTable![node.Len - 1];
-
-        // It's a dense node.
-        // However, if we are calling this on a child that forced relaxation, 
-        // it might be a Dense node with 32 children where the last one is sparse
-        var denseNode = AsInternal(node);
-        var fullParams = (denseNode.Len - 1) * (1 << shift);
-        var lastChildSize = CountTree(denseNode.Children[denseNode.Len - 1]!, shift - Constants.RRB_BITS);
-        return fullParams + lastChildSize;
-    }
 
 
     public static Node<T> AppendLeafToTree<T>(Node<T>? root, LeafNode<T> leafToPush, ref int shift, OwnerId token)
@@ -1480,11 +1638,11 @@ internal static class RrbAlgorithm
         int shift)
     {
         // Total virtual children = 32 (existing) - 1 (replaced) + 2 (new) = 33.
-        const int SplitPoint = 16;
-        const int RightLen = 17; // 33 - 16
+        const int splitPoint = 16;
+        const int rightLen = 17; // 33 - 16
 
-        var leftChildren = new Node<T>?[SplitPoint];
-        var rightChildren = new Node<T>?[RightLen];
+        var leftChildren = new Node<T>?[splitPoint];
+        var rightChildren = new Node<T>?[rightLen];
 
         // Helper to get from the logical sequence of 33
         Node<T> GetVirtualChild(int i)
@@ -1495,11 +1653,11 @@ internal static class RrbAlgorithm
             return node.Children[i - 1]!;
         }
 
-        for (var i = 0; i < SplitPoint; i++) leftChildren[i] = GetVirtualChild(i);
-        for (var i = 0; i < RightLen; i++) rightChildren[i] = GetVirtualChild(SplitPoint + i);
+        for (var i = 0; i < splitPoint; i++) leftChildren[i] = GetVirtualChild(i);
+        for (var i = 0; i < rightLen; i++) rightChildren[i] = GetVirtualChild(splitPoint + i);
 
-        var leftTable = new int[SplitPoint];
-        var rightTable = new int[RightLen];
+        var leftTable = new int[splitPoint];
+        var rightTable = new int[rightLen];
         var childShift = shift - Constants.RRB_BITS;
 
         // Recalculate all sizes. 
@@ -1509,7 +1667,7 @@ internal static class RrbAlgorithm
         var cumulative = 0;
 
         // Fill Left
-        for (var i = 0; i < SplitPoint; i++)
+        for (var i = 0; i < splitPoint; i++)
         {
             // Re-use logic: Measure new nodes, assume blocksize for others (unless table exists)
             var virtualIdx = i;
@@ -1520,16 +1678,16 @@ internal static class RrbAlgorithm
 
         // Fill Right (Reset cumulative)
         cumulative = 0;
-        for (var i = 0; i < RightLen; i++)
+        for (var i = 0; i < rightLen; i++)
         {
-            var virtualIdx = SplitPoint + i;
+            var virtualIdx = splitPoint + i;
             var size = GetVirtualChildSize(node, virtualIdx, splitChildIndex, childLeft, childRight, childShift);
             cumulative += size;
             rightTable[i] = cumulative;
         }
 
-        var newLeft = new InternalNode<T>(leftChildren, leftTable, SplitPoint, OwnerId.None);
-        var newRight = new InternalNode<T>(rightChildren, rightTable, RightLen, OwnerId.None);
+        var newLeft = new InternalNode<T>(leftChildren, leftTable, splitPoint, OwnerId.None);
+        var newRight = new InternalNode<T>(rightChildren, rightTable, rightLen, OwnerId.None);
 
         return new InsertResult<T>(newLeft, newRight);
     }
@@ -1567,4 +1725,6 @@ internal static class RrbAlgorithm
         public readonly Node<T> NewNode = newNode;
         public readonly Node<T>? Overflow = overflow; // If not null, the node split
     }
+    
+
 }

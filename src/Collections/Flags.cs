@@ -3,7 +3,7 @@ namespace Collections;
 [Flags]
 public enum NodeFlags : byte
 {
-    // Bits 3-8 are currently not in use.
+    // Bits 4-8 are currently not in use.
     None = 0,
     IsRelaxed = 1 << 0, // 1
     IsLeaf = 1 << 1, // 2

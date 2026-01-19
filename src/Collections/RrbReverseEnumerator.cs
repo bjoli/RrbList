@@ -66,7 +66,7 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T> where T : notnull
         get => _currentItems![_leafIndex];
     }
 
-    object IEnumerator.Current => Current!;
+    object IEnumerator.Current => Current;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool MoveNext()
