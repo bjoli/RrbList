@@ -10,12 +10,10 @@
  */
 
 
-
 namespace Collections;
 
 public sealed partial class RrbList<T>
 {
-    
     /**
      * <summary>
      *     Applies an accumulator function over a sequence.
@@ -66,47 +64,42 @@ public sealed partial class RrbList<T>
 
         return state;
     }
-    
-    
+
+
     /**
      * <summary>
-     * High-performance internal iterator.
-     * Returns false if the iteration was terminated early by the predicate.
+     *     High-performance internal iterator.
+     *     Returns false if the iteration was terminated early by the predicate.
      * </summary>
-     * <summary>   
      * <param name="action">A function that returns true to continue, or false to break.</param>
      * <example>
-     *  list.Iter(item => {
-     *      if (item > 100) 
-     *        {
-     *           Console.WriteLine("Found it!");
-     *           return false; // Break
-     *       }
-     *      return true; // Continue
-     *      });
-     *
-     *
+     *     list.Iter(item => {
+     *     if (item > 100)
+     *     {
+     *     Console.WriteLine("Found it!");
+     *     return false; // Break
+     *     }
+     *     return true; // Continue
+     *     });
      * </example>
-    */
+     */
     public bool Iter(Func<T, bool> action)
     {
         // 1. Iterate Tree
         if (Root != null)
-        {
             // If the tree part returns false, we stop immediately and return false.
-            if (!IterNode(Root, Shift, action)) return false;
-        }
+            if (!IterNode(Root, Shift, action))
+                return false;
 
         // 2. Iterate Tail
         if (TailLen > 0)
         {
             var items = Tail;
             // Hoist the length check for speed
-            int len = TailLen; 
-            for (int i = 0; i < len; i++)
-            {
-                if (!action(items[i])) return false;
-            }
+            var len = TailLen;
+            for (var i = 0; i < len; i++)
+                if (!action(items[i]))
+                    return false;
         }
 
         return true; // Completed successfully
@@ -121,11 +114,10 @@ public sealed partial class RrbList<T>
             var leaf = RrbAlgorithm.AsLeaf(node);
             var items = leaf.Items;
             int len = leaf.Len;
-        
-            for (int i = 0; i < len; i++)
-            {
-                if (!action(items[i])) return false;
-            }
+
+            for (var i = 0; i < len; i++)
+                if (!action(items[i]))
+                    return false;
             return true;
         }
 
@@ -133,20 +125,19 @@ public sealed partial class RrbList<T>
         var internalNode = RrbAlgorithm.AsInternal(node);
         var children = internalNode.Children;
         int childCount = internalNode.Len;
-        int nextShift = shift - Constants.RRB_BITS;
+        var nextShift = shift - Constants.RRB_BITS;
 
-        for (int i = 0; i < childCount; i++)
-        {
+        for (var i = 0; i < childCount; i++)
             // Recurse. If child returns false (break), we propagate it up.
-            if (!IterNode(children[i]!, nextShift, action)) return false;
-        }
+            if (!IterNode(children[i]!, nextShift, action))
+                return false;
 
         return true;
     }
-    
+
     /**
      * <summary>
-     * Performs the specified action on each element of the list within the range.
+     *     Performs the specified action on each element of the list within the range.
      * </summary>
      * <param name="action">The delegate to perform on each element.</param>
      * <param name="index">The zero-based starting index (default 0).</param>
@@ -155,22 +146,22 @@ public sealed partial class RrbList<T>
     public void ForEach(Action<T> action, int index = 0, int count = -1)
     {
         if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
-        
+
         // Handle default "to the end"
         if (count == -1) count = Count - index;
-        
+
         if (count < 0 || index + count > Count) throw new ArgumentOutOfRangeException(nameof(count));
         if (count == 0) return;
 
         // Traverse the Tree (Root)
         var treeSize = Count - TailLen;
-        
+
         // Check if our range overlaps with the tree
         if (index < treeSize && Root != null)
         {
             var takeFromTree = Math.Min(count, treeSize - index);
             ForEachNode(Root, Shift, index, takeFromTree, action);
-            
+
             // Adjust remaining count and index for the tail
             count -= takeFromTree;
             index = 0; // We have consumed the offset inside the tree
@@ -185,12 +176,9 @@ public sealed partial class RrbList<T>
         if (count > 0 && TailLen > 0)
         {
             var items = Tail;
-            
+
             var end = index + count;
-            for (var i = index; i < end; i++)
-            {
-                action(items[i]);
-            }
+            for (var i = index; i < end; i++) action(items[i]);
         }
     }
 
@@ -202,22 +190,19 @@ public sealed partial class RrbList<T>
             var leaf = RrbAlgorithm.AsLeaf(node);
             var items = leaf.Items;
             var end = offset + count;
-            for (var i = offset; i < end; i++)
-            {
-                action(items[i]);
-            }
+            for (var i = offset; i < end; i++) action(items[i]);
             return;
         }
 
         // Internal Node
         var internalNode = RrbAlgorithm.AsInternal(node);
         var childShift = shift - Constants.RRB_BITS;
-        
+
         // Fast path for Dense nodes
         if (internalNode.SizeTable == null)
         {
             var blockSize = 1 << childShift;
-            
+
             for (var i = 0; i < internalNode.Len; i++)
             {
                 if (count <= 0) break;
@@ -225,7 +210,7 @@ public sealed partial class RrbList<T>
                 // If last child, we assume it contains everything else we need. 
                 // (Since we validated total bounds at the entry point).
                 // Otherwise, it's a full block.
-                var currentSize = (i == internalNode.Len - 1) ? int.MaxValue : blockSize;
+                var currentSize = i == internalNode.Len - 1 ? int.MaxValue : blockSize;
 
                 // Skip child entirely if offset is beyond it
                 if (offset >= currentSize)
@@ -237,9 +222,9 @@ public sealed partial class RrbList<T>
                     // Overlap: We need to process this child
                     // We take either all that is requested, or all that holds in this child
                     var amount = Math.Min(count, currentSize - offset);
-                    
+
                     ForEachNode(internalNode.Children[i]!, childShift, offset, amount, action);
-                    
+
                     count -= amount;
                     offset = 0; // After the first partial child, subsequent children start at 0
                 }
@@ -263,19 +248,15 @@ public sealed partial class RrbList<T>
                 else
                 {
                     var amount = Math.Min(count, currentSize - offset);
-                    
+
                     ForEachNode(internalNode.Children[i]!, childShift, offset, amount, action);
-                    
+
                     count -= amount;
                     offset = 0;
                 }
+
                 prevTotal = currentTotal;
             }
         }
     }
-    
-    
-    
-    
-    
 }

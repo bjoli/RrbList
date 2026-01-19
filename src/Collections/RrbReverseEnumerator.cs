@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
-public struct RrbReverseEnumerator<T> : IEnumerator<T>
+public struct RrbReverseEnumerator<T> : IEnumerator<T> where T : notnull
 {
     private readonly RrbList<T> _list;
 
@@ -66,7 +66,7 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         get => _currentItems![_leafIndex];
     }
 
-    object IEnumerator.Current => Current!;
+    object IEnumerator.Current => Current;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool MoveNext()

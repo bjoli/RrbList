@@ -6,7 +6,7 @@ namespace Collections;
  * </summary>
  * <typeparam name="T">The type of elements in the list.</typeparam>
  */
-public class RrbBuilder<T>
+public class RrbBuilder<T> where T : notnull
 {
     private readonly T[] _tail;
 
@@ -56,8 +56,7 @@ public class RrbBuilder<T>
         _tail = new T[_tailCapacity];
         list.Tail.CopyTo(_tail, 0);
     }
-    
-    
+
 
     /**
      * <summary>

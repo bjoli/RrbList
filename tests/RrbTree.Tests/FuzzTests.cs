@@ -122,14 +122,13 @@ public class FuzzTest
                         var idx = random.Next(0, expected.Count);
                         if (expected[idx] != actual[idx])
                         {
-                            if (idx == 37569) 
+                            if (idx == 37569)
                                 Console.WriteLine("bp");
                             throw new Exception($"Value Mismatch at index {idx} (iter {i}). " +
                                                 $"Ex: {expected[idx]}, Ac: {actual[idx]}");
                         }
                     }
             }
-
 
 
             // At the end, check EVERYTHING.
