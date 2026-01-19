@@ -702,7 +702,7 @@ internal static class RrbAlgorithm
     }
     
     
-     private static Node<T> SliceLeftRec<T>(Node<T> node, int toDrop, int shift)
+     internal static Node<T> SliceLeftRec<T>(Node<T> node, int toDrop, int shift)
     {
         // Base Case: Leaf
         if (shift == 0)

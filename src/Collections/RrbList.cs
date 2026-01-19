@@ -416,6 +416,26 @@ public sealed partial class RrbList<T>
         var treeSliceCount = Math.Max(0, treeSliceEnd - treeSliceStart);
 
         Node<T>? newRoot = null;
+        
+        // Slice falls into tail
+        if (start > treeSize)
+        {
+            var tTail = Tail.AsSpan().Slice(start - treeSize, count).ToArray();
+            return new RrbList<T>(null, tTail, count, 0, tTail.Length);
+        }
+        
+        // Drop. Start is less than TreeSize, meaning Root is not null
+        if (start != 0 && start + count == count)
+        {
+            newRoot = RrbAlgorithm.SliceLeftRec(Root!, start, Shift);
+            int tempShift = Shift;
+            while (newRoot.Len == 1 && tempShift < 0)
+            {
+                newRoot = RrbAlgorithm.AsInternal(newRoot).Children[0];
+            }
+            return new RrbList<T>(newRoot, Tail, count, tempShift, TailLen);
+            
+        }
 
         // Receive raw array + length directly
         T[] promotedTail = Array.Empty<T>();
