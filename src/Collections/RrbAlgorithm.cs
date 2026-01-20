@@ -1266,17 +1266,32 @@ internal static class RrbAlgorithm
         return (i, index - prev);
     }
 
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static InternalNode<T> AsInternal<T>(Node<T> node)
     {
+#if DEBUG
+    if (node is InternalNode<T> internalNode)
+    {
+        return internalNode;
+    }
+    throw new InvalidCastException($"Expected InternalNode, but found {node.GetType().Name}. Check your shift/height logic.");
+#else
         return Unsafe.As<InternalNode<T>>(node);
+#endif
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static LeafNode<T> AsLeaf<T>(Node<T> node)
     {
+#if DEBUG
+    if (node is LeafNode<T> leafNode)
+    {
+        return leafNode;
+    }
+    throw new InvalidCastException($"Expected LeafNode, but found {node.GetType().Name}. Check your shift/height logic.");
+#else
         return Unsafe.As<LeafNode<T>>(node);
+#endif
     }
 
 
