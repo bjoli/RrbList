@@ -72,28 +72,28 @@ internal static class RrbAlgorithm
 
         var optimalSlots = (totalNodes - 1) / Constants.RRB_BRANCHING + 1;
         var shuffledLen = allChildren.Length;
-        var i_idx = 0;
+        var iIdx = 0;
 
         while (optimalSlots + Constants.RRB_EXTRAS < shuffledLen)
         {
-            while (i_idx < shuffledLen && nodeCount[i_idx] > Constants.RRB_BRANCHING - Constants.RRB_INVARIANT) i_idx++;
+            while (iIdx < shuffledLen && nodeCount[iIdx] > Constants.RRB_BRANCHING - Constants.RRB_INVARIANT) iIdx++;
 
-            if (i_idx == shuffledLen) break;
+            if (iIdx == shuffledLen) break;
 
-            var remainingNodes = nodeCount[i_idx];
+            var remainingNodes = nodeCount[iIdx];
             do
             {
-                if (i_idx + 1 >= shuffledLen) break;
-                var minSize = Math.Min(remainingNodes + nodeCount[i_idx + 1], Constants.RRB_BRANCHING);
-                nodeCount[i_idx] = minSize;
-                remainingNodes = remainingNodes + nodeCount[i_idx + 1] - minSize;
-                i_idx++;
+                if (iIdx + 1 >= shuffledLen) break;
+                var minSize = Math.Min(remainingNodes + nodeCount[iIdx + 1], Constants.RRB_BRANCHING);
+                nodeCount[iIdx] = minSize;
+                remainingNodes = remainingNodes + nodeCount[iIdx + 1] - minSize;
+                iIdx++;
             } while (remainingNodes > 0);
 
-            for (var j = i_idx; j < shuffledLen - 1; j++) nodeCount[j] = nodeCount[j + 1];
+            for (var j = iIdx; j < shuffledLen - 1; j++) nodeCount[j] = nodeCount[j + 1];
 
             shuffledLen--;
-            i_idx--;
+            iIdx--;
         }
 
         topLen = shuffledLen;
@@ -796,7 +796,7 @@ internal static class RrbAlgorithm
     ///     If the resulting rightmost leaf is Partial (less than 32), it is detached and returned as PromotedTail.
     ///     If the resulting rightmost leaf is Full (32), it stays in the tree (PromotedTail is Empty).
     /// </summary>
-    public static Node<T>? SliceRightAndPromote<T>(Node<T> node, int limit, int shift, out T[] promotedTail, out int tailLen)
+    private static Node<T>? SliceRightAndPromote<T>(Node<T> node, int limit, int shift, out T[] promotedTail, out int tailLen)
 {
     // --- Base Case: Leaf ---
     if (shift == 0)
@@ -972,16 +972,10 @@ internal static class RrbAlgorithm
 
         // 1. Get Writable Node
         // If we detected a violation, we MUST force expansion to include a SizeTable.
-        InternalNode<T> editable;
 
-        if (requiresRelaxation)
-            // Special Path: Upgrade Dense -> Relaxed
-            editable = CreateRelaxedNodeFromDense(node, token, shift);
-        // Note: CreateRelaxedNodeFromDense already handles 'expand: true' logic
-        // by allocating a table large enough.
-        else
-            // Standard Path
-            editable = node.EnsureEditable(token, true);
+        InternalNode<T> editable = requiresRelaxation 
+            ? CreateRelaxedNodeFromDense(node, token, shift) 
+            : node.EnsureEditable(token, true);
 
         // 2. Insert
         editable.Children[editable.Len] = childToAdd;
@@ -1544,11 +1538,9 @@ internal static class RrbAlgorithm
                 // They are still full (blockSize), except possibly the very last one.
                 for (var i = childIndex + 1; i < internalNode.Len; i++)
                 {
-                    int size;
-                    if (i == internalNode.Len - 1)
-                        size = CountTree(internalNode.Children[i]!, childShift);
-                    else
-                        size = blockSize;
+                    int size = (i == internalNode.Len - 1) 
+                        ? CountTree(internalNode.Children[i]!, childShift)
+                        : blockSize;
 
                     currentSum += size;
                     newSizeTable[i] = currentSum;

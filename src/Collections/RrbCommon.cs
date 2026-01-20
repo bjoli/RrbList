@@ -41,20 +41,14 @@ internal static class Constants
 }
 
 [StructLayout(LayoutKind.Auto, Pack = 1)]
-internal readonly struct OwnerId : IEquatable<OwnerId>
+internal readonly struct OwnerId(uint id, ushort gen) : IEquatable<OwnerId>
 {
     // Global monotonic counter
     private static long _globalCounter = 1;
 
-    public readonly uint Id; // 4 bytes
-    public readonly ushort Gen; // 2 bytes
+    private readonly uint Id = id; // 4 bytes
+    private readonly ushort Gen = gen; // 2 bytes
     // Total Size: 6 Bytes
-
-    public OwnerId(uint id, ushort gen)
-    {
-        Id = id;
-        Gen = gen;
-    }
 
     public static OwnerId Next()
     {

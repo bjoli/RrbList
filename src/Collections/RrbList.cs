@@ -429,7 +429,7 @@ public sealed partial class RrbList<T>
         {
             newRoot = RrbAlgorithm.SliceLeftRec(Root!, start, Shift);
             int tempShift = Shift;
-            while (newRoot.Len == 1 && tempShift < 0)
+            while (newRoot!.Len == 1 && tempShift < 0)
             {
                 newRoot = RrbAlgorithm.AsInternal(newRoot).Children[0];
             }

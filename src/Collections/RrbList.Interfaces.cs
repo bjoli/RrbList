@@ -101,7 +101,10 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
 
         // We use a dictionary to track how many instances of each value we need to remove.
         var toRemove = new Dictionary<T, int>(equalityComparer);
-        foreach (var item in items)
+        
+        // Enumerate to array to avoid multiple enumerations.
+        var enumerable = items as T[] ?? items.ToArray();
+        foreach (var item in enumerable)
             if (toRemove.TryGetValue(item, out var count))
                 toRemove[item] = count + 1;
             else
@@ -111,7 +114,7 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         if (toRemove.Count == 0) return this;
 
         // Rebuild the list using Builder
-        var builder = new RrbBuilder<T>(items.Count() < 4096 ? 32 : 1024);
+        var builder = new RrbBuilder<T>(enumerable.Count() < 4096 ? 32 : 1024);
         var changed = false;
 
         foreach (var item in this)
