@@ -121,7 +121,7 @@ public class RrbBuilder<T> where T : notnull
         }
 
         // Slow Path: Tail is full (e.g. 1024 items)
-        PushFullTail();
+        PushFatTail();
 
         // Clear the tail. We can safely reuse it. 
         Array.Clear(_tail);
@@ -161,25 +161,6 @@ public class RrbBuilder<T> where T : notnull
      */
     public RrbList<T> ToImmutable()
     {
-        // I added this because the code below interacted weirdly with an old version of TryPushDownTail
-        // I commented it out, and everything stil passes. Keeping it in until better times.
-        // if (_tailCapacity == Constants.RRB_BRANCHING)
-        // {
-        //     // 3. Freeze Root
-        //     var newRoot = _root;
-        //     if (newRoot is InternalNode<T> intNode) newRoot = intNode.Freeze();
-        //     else if (newRoot is LeafNode<T> leafNode) newRoot = leafNode.Freeze();
-        //
-        //     _token = new OwnerToken();
-        //     var nTail = _tail.AsSpan().Slice(0, _tailLen).ToArray();
-        //
-        //     return new RrbList<T>(newRoot,
-        //         new LeafNode<T>(nTail, _tailLen, null),
-        //         Count,
-        //         _shift,
-        //         _tailLen);
-        // }
-
         // Flush full chunks from current tail
         var fullChunks = _tailLen / Constants.RRB_BRANCHING;
         var remainder = _tailLen % Constants.RRB_BRANCHING;
@@ -237,5 +218,130 @@ public class RrbBuilder<T> where T : notnull
         }
 
         _root = RrbAlgorithm.Update(_root!, index, value, _shift, _token);
+    }
+
+    public void PushFatTail()
+    {
+        if (_shift == 0 || _root.IsRelaxed())
+        {
+         PushFullTail();
+         return;
+        }
+        
+        
+        int a = 0;
+        ref int pos = ref a;
+        Span<T> tail = _tail.AsSpan();
+
+        var inode = RrbAlgorithm.AsInternal(_root).EnsureEditable(_token);
+        if (!PushFatTailRec(inode, tail, _shift, ref pos))
+        {
+            Node<T>[] newchildren = new Node<T>[2];
+            newchildren[0] = _root;
+            newchildren[1] = new InternalNode<T>(0, _token);
+            _root = new InternalNode<T>(newchildren, null, 2, _token);
+            _shift += Constants.RRB_BITS;
+            PushFatTailRec(_root, tail, _shift, ref pos);
+        }
+
+        Count += _tailCapacity;
+
+    }
+
+    internal bool PushFatTailRec(Node<T> node, Span<T> tail, int shift, ref int pos)
+    {
+        if (shift == 0)
+            throw new IndexOutOfRangeException();
+        
+        var inode = RrbAlgorithm.AsInternal(node);
+
+        
+        // ACTION! We make sure the current node is editable above the current shift. It is already expanded and editable
+        // here.
+        if (shift == Constants.RRB_BITS)
+        {
+            // Everything is full to the brim
+            if (inode.Len == Constants.RRB_BRANCHING &&
+                inode.Children[Constants.RRB_BRANCHING - 1]!.Len == Constants.RRB_BRANCHING)
+            {
+                return false;
+            }
+            
+            if(inode.Len == 0)
+            { // inode is created above. Already editable.
+                inode.Children[0] = new InternalNode<T>(0, _token);
+                inode.Len++;
+            }
+
+            // Check whether the last node is full. If it is we make a new node
+            InternalNode<T> currentNode;
+            int cur;
+            if (inode.Children[inode.Len - 1]!.Len < Constants.RRB_BRANCHING)
+            {
+                currentNode = RrbAlgorithm.AsInternal(inode.Children[inode.Len - 1]!).EnsureEditable(_token);
+                inode.Children[inode.Len - 1] = currentNode;
+                cur = currentNode.Len;
+            }
+            else
+            {
+                currentNode  = new InternalNode<T>(0, _token);
+                inode.Children[inode.Len] = currentNode;
+                cur = 0;
+                inode.Len++;
+            }
+            
+            // Here currentNode is set tho the last node in the tree with room. 
+            // cur is set to the last available position in that node
+
+            while (true)
+            {
+               
+                for (; cur < Constants.RRB_BRANCHING; cur++)
+                {
+                    currentNode.Children[cur] = new LeafNode<T>(tail.Slice(pos, Constants.RRB_BRANCHING).ToArray(),
+                        Constants.RRB_BRANCHING, _token);
+                    currentNode.Len++;
+                    pos += Constants.RRB_BRANCHING;
+                }
+
+                if (pos >= _tailCapacity)
+                    return true;
+                
+                if (inode.Len == Constants.RRB_BRANCHING)
+                    break;
+
+                // here we know the inode is shorter than RRB_BRANCHING
+                currentNode = new InternalNode<T>(0, _token);
+                inode.Children[inode.Len] = currentNode;
+                inode.Len++;
+                cur = 0;
+            }
+            return pos < _tailCapacity;
+        }
+
+        if (inode.Len == 0)
+        {
+            inode.Children[0] = new InternalNode<T>(0, _token);
+            inode.Len++;
+        }
+        
+        // In the tree!
+        InternalNode<T> next = RrbAlgorithm.AsInternal(inode.Children[inode.Len - 1]!);
+        next = next.EnsureEditable(_token);
+        while (!PushFatTailRec(next, tail, shift - Constants.RRB_BITS, ref pos))
+        {
+            // here we need to check whether we have room for a rightward expansion
+            if (inode.Len == Constants.RRB_BRANCHING &&
+                inode.Children[node.Len - 1]!.Len == Constants.RRB_BRANCHING)
+                return false;
+            inode.Children[inode.Len] = new InternalNode<T>(0, _token);
+            inode.Len++;
+            next = RrbAlgorithm.AsInternal(inode.Children[inode.Len - 1]!);
+        }
+
+        return true;
+
+
+
     }
 }
