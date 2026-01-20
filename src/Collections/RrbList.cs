@@ -424,14 +424,17 @@ public sealed partial class RrbList<T>
             return new RrbList<T>(null, tTail, count, 0, tTail.Length);
         }
         
-        // Drop. Start is less than TreeSize, meaning Root is not null
-        if (start != 0 && start + count == count)
+        // Drop/skip. Start is less than TreeSize, meaning Root is not null
+        if (start != 0 && start + count == Count)
         {
             newRoot = RrbAlgorithm.SliceLeftRec(Root!, start, Shift);
             int tempShift = Shift;
+            
+            // Squash the tree.
             while (newRoot!.Len == 1 && tempShift < 0)
             {
                 newRoot = RrbAlgorithm.AsInternal(newRoot).Children[0];
+                tempShift -= Constants.RRB_BITS;
             }
             return new RrbList<T>(newRoot, Tail, count, tempShift, TailLen);
             
