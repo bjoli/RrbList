@@ -76,7 +76,7 @@ public class RrbBenchmarks
     [Benchmark]
     public void Build_Transient()
     {
-        var builder = new RrbBuilder<int>(1024);
+        var builder = new RrbBuilder<int>();
         for (var i = 0; i < N; i++) builder.Add(i);
         var res = builder.ToImmutable();
     }
@@ -84,7 +84,7 @@ public class RrbBenchmarks
     [Benchmark]
     public void Build_Transient_Standard_Leaf()
     {
-        var builder = new RrbBuilder<int>(32);
+        var builder = new RrbBuilder<int>();
         for (var i = 0; i < N; i++) builder.Add(i);
         var res = builder.ToImmutable();
     }

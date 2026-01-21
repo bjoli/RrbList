@@ -105,13 +105,13 @@ public class RrbListBenchmarks
         return list;
     }
 
-    [Benchmark(Description = "RrbBuilder.SetItem")]
-    [BenchmarkCategory("SetItem")]
-    public void SetItem_RrbBuilder()
-    {
-        // Builder is mutable, so we just set them
-        foreach (var idx in _randomIndexes) _rrbBuilder.SetItem(idx, 999);
-    }
+    // [Benchmark(Description = "RrbBuilder.SetItem")]
+    // [BenchmarkCategory("SetItem")]
+    // public void SetItem_RrbBuilder()
+    // {
+    //     // Builder is mutable, so we just set them
+    //     foreach (var idx in _randomIndexes) _rrbBuilder.SetItem(idx, 999);
+    // }
 
     [Benchmark(Description = "RrbListUnbalanced.SetItem")]
     [BenchmarkCategory("SetItem")]

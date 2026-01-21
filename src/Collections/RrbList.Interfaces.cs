@@ -114,7 +114,7 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         if (toRemove.Count == 0) return this;
 
         // Rebuild the list using Builder
-        var builder = new RrbBuilder<T>(enumerable.Count() < 4096 ? 32 : 1024);
+        var builder = new RrbBuilder<T>();
         var changed = false;
 
         foreach (var item in this)

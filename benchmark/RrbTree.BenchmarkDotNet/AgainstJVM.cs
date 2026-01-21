@@ -37,7 +37,7 @@ public class AgainstJvm
     [Benchmark]
     public RrbList<int> Building()
     {
-        var b = new RrbBuilder<int>(1024);
+        var b = new RrbBuilder<int>();
         for (var i = 0; i < Size; i++) b.Add(i);
         // Assuming ToImmutable() or similar exists to finalize the builder
         return b.ToImmutable();

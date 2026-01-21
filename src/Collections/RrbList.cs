@@ -76,9 +76,9 @@ public sealed partial class RrbList<T>
         // TODO: benchmark where it makes sense to use a fat tail.
         var enumerable = items as T[] ?? items.ToArray();
         if (enumerable.Count() > 4096)
-            builder = new RrbBuilder<T>(1024);
+            builder = new RrbBuilder<T>();
         else
-            builder = new RrbBuilder<T>(32);
+            builder = new RrbBuilder<T>();
 
         foreach (var item in enumerable) builder.Add(item);
 
@@ -366,7 +366,7 @@ public sealed partial class RrbList<T>
      */
     public RrbBuilder<T> ToBuilder(int leafCapacify = Constants.RRB_BRANCHING)
     {
-        return new RrbBuilder<T>(this, leafCapacify);
+        return new RrbBuilder<T>(this);
     }
 
 

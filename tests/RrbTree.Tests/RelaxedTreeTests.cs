@@ -98,7 +98,7 @@ public class RelaxedTreeTests
         var relaxedList = CreateRelaxedList();
 
         // Use a builder with a larger tail capacity
-        var builder = new RrbBuilder<int>(128);
+        var builder = new RrbBuilder<int>();
         foreach (var item in relaxedList) builder.Add(item);
 
         // At this point, the builder should internally match the relaxed list

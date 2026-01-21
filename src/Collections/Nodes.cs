@@ -24,7 +24,7 @@ internal abstract class Node<T>
     // but the CLR generally packs references first. 
     // The fields below consume exactly 8 bytes.
 
-    protected OwnerId Owner; // 6 bytes
+    public OwnerId Owner; // 6 bytes
     public byte Len; // 1 byte
     public NodeFlags Flags; // 1 byte
 
@@ -37,13 +37,13 @@ internal abstract class Node<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsRelaxed()
     {
-        return (Flags & NodeFlags.IsRelaxed) == 0;
+        return (Flags & NodeFlags.IsRelaxed) != 0;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsDense()
     {
-        return (Flags & NodeFlags.IsRelaxed) != 0;
+        return (Flags & NodeFlags.IsRelaxed) == 0;
     }
 }
 
