@@ -10,7 +10,7 @@ using Collections;
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 [Orderer(SummaryOrderPolicy.Declared)]
 [HideColumns("Error", "StdDev", "Rank", "Gen0", "Gen1", "Gen2")]
-public class RrbListBenchmarks
+public class Comparison
 {
     private const int RandomCount = 20; // Number of random updates per invocation
     private ImmutableList<int> _immChunk;
@@ -32,7 +32,10 @@ public class RrbListBenchmarks
     private RrbList<int> _rrbUnbalanced;
 
     // Run for small, medium, and large lists to see scaling
-    [Params(100, 10000, 100000)] public int N;
+    [Params(100, 10000, 100000)] 
+    public int N;
+
+    // To avoid nagging when running the benchmarks.
 
     [GlobalSetup]
     public void Setup()
@@ -105,13 +108,13 @@ public class RrbListBenchmarks
         return list;
     }
 
-    // [Benchmark(Description = "RrbBuilder.SetItem")]
-    // [BenchmarkCategory("SetItem")]
-    // public void SetItem_RrbBuilder()
-    // {
-    //     // Builder is mutable, so we just set them
-    //     foreach (var idx in _randomIndexes) _rrbBuilder.SetItem(idx, 999);
-    // }
+    [Benchmark(Description = "RrbBuilder.SetItem")]
+    [BenchmarkCategory("SetItem")]
+    public void SetItem_RrbBuilder()
+    {
+        // Builder is mutable, so we just set them
+        foreach (var idx in _randomIndexes) _rrbBuilder.SetItem(idx, 999);
+    }
 
     [Benchmark(Description = "RrbListUnbalanced.SetItem")]
     [BenchmarkCategory("SetItem")]
@@ -248,36 +251,54 @@ public class RrbListBenchmarks
     [BenchmarkCategory("Add")]
     public RrbList<int> Add_RrbList()
     {
-        return _rrbList.Add(999);
+        RrbList<int> a = new RrbList<int>();
+        for (var i = 0; i < N; i++)
+        {
+            a = a.Add(1);
+        }
+
+        return a;
     }
 
-    [Benchmark(Description = "RrbListUnbalanced.Add")]
-    [BenchmarkCategory("Add")]
-    public RrbList<int> Add_RrbListUnbalanced()
-    {
-        return _rrbUnbalanced.Add(999);
-    }
+
 
     [Benchmark(Description = "RrbBuilder.Add")]
     [BenchmarkCategory("Add")]
-    public void Add_RrbBuilder()
+    public RrbList<int> Add_RrbBuilder()
     {
-        _rrbBuilder.Add(999);
+        RrbBuilder<int> a = new RrbBuilder<int>();
+        for (var i = 0; i < N; i++)
+        {
+            a.Add(1);
+        }
+
+        return a.ToImmutable();
     }
 
     [Benchmark(Description = "ImmutableList.Add")]
     [BenchmarkCategory("Add")]
     public ImmutableList<int> Add_ImmutableList()
     {
-        return _immutableList.Add(999);
+        ImmutableList<int> a = ImmutableList<int>.Empty;
+        for (int i = 0; i < N; i++)
+        {
+            a = a.Add(i);
+        }
+
+        return a;
     }
 
     [Benchmark(Description = "List.Add")]
     [BenchmarkCategory("Add")]
-    public void Add_List()
+    public List<int> Add_List()
     {
-        _list.Add(999);
-        _list.RemoveAt(_list.Count - 1); // Cleanup
+        List<int> a = new List<int>();
+        for (var i = 0; i < N; i++)
+        {
+            a.Add(1);
+        }
+
+        return a;
     }
 
     // --- 7. SLICE / GET RANGE ---
