@@ -443,7 +443,9 @@ public sealed partial class RrbList<T>
         // Start is 0. It is a take operation inside the tree
         if (start == 0 && count < treeSize)
         {
-            var takeRoot = RrbAlgorithm.SliceRightAndPromote(newRoot, count, Shift, out T[] takeTail, out int len);
+            var takeRoot = RrbAlgorithm.SliceRightAndPromote(Root!, count, Shift,
+                out T[]? takeTail,
+                out int len);
             int tempShift = Shift;
             
             while (takeRoot!.Len == 1 && tempShift < 0)
