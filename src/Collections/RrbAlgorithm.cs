@@ -796,7 +796,7 @@ internal static class RrbAlgorithm
     ///     If the resulting rightmost leaf is Partial (less than 32), it is detached and returned as PromotedTail.
     ///     If the resulting rightmost leaf is Full (32), it stays in the tree (PromotedTail is Empty).
     /// </summary>
-    private static Node<T>? SliceRightAndPromote<T>(Node<T> node, int limit, int shift, out T[] promotedTail, out int tailLen)
+    internal static Node<T>? SliceRightAndPromote<T>(Node<T> node, int limit, int shift, out T[] promotedTail, out int tailLen)
 {
     // --- Base Case: Leaf ---
     if (shift == 0)

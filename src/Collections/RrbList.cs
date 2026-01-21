@@ -439,6 +439,20 @@ public sealed partial class RrbList<T>
             return new RrbList<T>(newRoot, Tail, count, tempShift, TailLen);
             
         }
+        
+        // Start is 0. It is a take operation inside the tree
+        if (start == 0 && count < treeSize)
+        {
+            var takeRoot = RrbAlgorithm.SliceRightAndPromote(newRoot, count, Shift, out T[] takeTail, out int len);
+            int tempShift = Shift;
+            
+            while (takeRoot!.Len == 1 && tempShift < 0)
+            {
+                takeRoot = RrbAlgorithm.AsInternal(takeRoot).Children[0];
+                tempShift -= Constants.RRB_BITS;
+            }
+            return new RrbList<T>(takeRoot,takeTail, count, tempShift, len);
+        }
 
         // Receive raw array + length directly
         T[] promotedTail = Array.Empty<T>();
