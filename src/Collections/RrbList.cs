@@ -526,24 +526,30 @@ public sealed partial class RrbList<T>
      * <param name="other">The list to merge with the current list.</param>
      * <returns>A new list containing elements from both lists.</returns>
      */
+
     public RrbList<T> Merge(RrbList<T> other)
     {
         if (other.Count == 0) return this;
         if (Count == 0) return other;
 
-        // Handle when all that we do is merge a tree with a tail
+        // Merging a tree with just a tail (other.Root == null)
+        // This avoids the Concat overhead for common "AppendAll" patterns.
         if (other.Root == null)
         {
+            // Both tails fit in one buffer (Simple array copy)
             if (TailLen + other.TailLen <= Constants.RRB_BRANCHING)
             {
                 var newItems = new T[TailLen + other.TailLen];
                 Array.Copy(Tail, 0, newItems, 0, TailLen);
                 Array.Copy(other.Tail, 0, newItems, TailLen, other.TailLen);
 
-                // Just return with merged tail
                 return new RrbList<T>(Root, newItems, Count + other.Count, Shift, newItems.Length);
             }
 
+            // Overflow. Current tail must be pushed into the tree.
+            // We fill the current tail buffer to 32 using items from 'other.Tail',
+            // push it into the tree, and the remainder of 'other.Tail' becomes the new tail.
+            
             var spaceInThis = Constants.RRB_BRANCHING - TailLen;
             var overflow = other.TailLen - spaceInThis;
 
@@ -551,34 +557,36 @@ public sealed partial class RrbList<T>
             Array.Copy(Tail, 0, newLeafItems, 0, TailLen);
             Array.Copy(other.Tail, 0, newLeafItems, TailLen, spaceInThis);
 
-            // Wrap in leaf node for the push operation
             var newLeaf = new LeafNode<T>(newLeafItems, Constants.RRB_BRANCHING, OwnerId.None);
 
             var newTailItems = new T[overflow];
             Array.Copy(other.Tail, spaceInThis, newTailItems, 0, overflow);
 
             var newShift = Shift;
+            // AppendLeafToTree safely handles Root being null (promotes leaf to tree logic)
             var newRoot = RrbAlgorithm.AppendLeafToTree(Root, newLeaf, ref newShift, OwnerId.None);
 
             return new RrbList<T>(newRoot, newTailItems, Count + other.Count, newShift, overflow);
         }
-
+        
+        // Full Merge: Tree + Tree
         var newLeftShift = Shift;
+        Node<T>? leftTree = Root;
 
-        // Must wrap our Tail into a LeafNode before pushing it into the tree.
-        var tailAsLeaf = new LeafNode<T>(Tail, TailLen, OwnerId.None);
-        var leftTree = Tail.Length == 0
-            ? Root
-            : RrbAlgorithm.AppendLeafToTree(Root, tailAsLeaf, ref newLeftShift, OwnerId.None);
+        // If TailLen is 0, we must not push an empty leaf, as that corrupts the tree structure.
+        if (TailLen > 0)
+        {
+            var tailAsLeaf = new LeafNode<T>(Tail, TailLen, OwnerId.None);
+            leftTree = RrbAlgorithm.AppendLeafToTree(Root, tailAsLeaf, ref newLeftShift, OwnerId.None);
+        }
 
-        var leftTreeShift = newLeftShift;
-        int combinedShift;
-        // We can be sure that leftTree is not null since we checked (although at different places) whether Count was 0,
-        // or the tail was empty. If count was 0 we would not be here. If tail had items it would have been pushed to the
-        // tree.
-        var combinedTree = RrbAlgorithm.Concat(leftTree!, other.Root!, leftTreeShift, other.Shift, out combinedShift);
+        // Concat
+        // We can safely assume leftTree is not null here because:
+        // if Count > 0 and TailLen > 0, leftTree is set by AppendLeafToTree.
+        // if Count > 0 and TailLen == 0, Root must be non-null (otherwise Count would be 0).
+        var combinedTree = RrbAlgorithm.Concat(leftTree!, other.Root!, newLeftShift, other.Shift, out var combinedShift);
 
-        // other.Tail is already T[], just pass it through
+        // other.Tail is preserved as the new tail
         return new RrbList<T>(combinedTree, other.Tail, Count + other.Count, combinedShift, other.TailLen);
     }
 

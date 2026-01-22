@@ -295,212 +295,179 @@ internal static class RrbAlgorithm
         return null;
     }
 
-    private static Node<T> Rebalance<T>(
-        InternalNode<T>? left,
-        Node<T> center,
-        InternalNode<T>? right,
-        int shift,
-        int centerShift,
-        out int newShift)
-    {
-        // 1. Collect all children into a stack buffer or pooled array to avoid allocs
-        // (Note: Constants.RRB_BRANCHING * 2 + 1 is small enough for stackalloc if T were unmanaged, 
-        // but Node<T> is a ref type. stick to array for now, or use a ThreadStatic buffer).
-        var allChildren = new Node<T>[Constants.RRB_BRANCHING * 2 + 1];
-        var count = 0;
-
-        // ... [Collection logic stays same] ...
-        if (left != null)
-            for (var i = 0; i < left.Len - 1; i++)
-                allChildren[count++] = left.Children[i]!;
-
-        if (centerShift == shift)
-        {
-            var cInternal = (InternalNode<T>)center;
-            for (var i = 0; i < cInternal.Len; i++) allChildren[count++] = cInternal.Children[i]!;
-        }
-        else
-        {
-            allChildren[count++] = center;
-        }
-
-        if (right != null)
-            for (var i = 1; i < right.Len; i++)
-                allChildren[count++] = right.Children[i]!;
-
-        var childrenSlice = new ReadOnlySpan<Node<T>>(allChildren, 0, count);
-
-        // Check if we fit in one node BEFORE planning
-        if (count <= Constants.RRB_BRANCHING)
-        {
-            // Just glue them. No "Planning" needed.
-            // This happens frequently when 'center' was merged and didn't grow much.
-            // We must calculate sizes if ANY input was relaxed or if we created a gap.
-            // But ExecuteConcatPlan does that for us. 
-            // We can skip CreateConcatPlan.
-
-
-            var newChildren = new Node<T>?[count];
-            // Span copy to array
-            for (var i = 0; i < count; i++) newChildren[i] = allChildren[i];
-
-            var newNode = new InternalNode<T>(newChildren, null, count, OwnerId.None);
-            var result = SetSizes(newNode, shift);
-            newShift = shift;
-            return result;
-        }
-
-        // ... [Rest of logic: CreateConcatPlan, ExecuteConcatPlan] ...
-        // (This remains the robust fallback for when nodes actually need redistributing)
-        Span<int> plan = stackalloc int[count];
-        CreateConcatPlan(childrenSlice, plan, out var topLen);
-
-        var newAll = ExecuteConcatPlan(childrenSlice, plan, topLen, shift);
-
-        if (topLen <= Constants.RRB_BRANCHING)
-        {
-            newShift = shift;
-            return SetSizes(newAll, shift);
-        }
-
-        var newLeft = CopyInternal(newAll, 0, Constants.RRB_BRANCHING);
-        var newRight = CopyInternal(newAll, Constants.RRB_BRANCHING, topLen - Constants.RRB_BRANCHING);
-
-        newLeft = SetSizes(newLeft, shift);
-        newRight = SetSizes(newRight, shift);
-
-        newShift = shift + Constants.RRB_BITS;
-        var parent = new InternalNode<T>(2, OwnerId.None);
-        parent.Children[0] = newLeft;
-        parent.Children[1] = newRight;
-        return SetSizes(parent, newShift);
-    }
 //     This is a _much_ faster rebalance that skips the whole concat plan. 
 //     the resulting tree is less balanced, but merging takes about half as long.
-//     
-//     
-//     private static Node<T> Rebalance<T>(
-//     InternalNode<T>? left,
-//     Node<T> center,
-//     InternalNode<T>? right,
-//     int shift,
-//     int centerShift,
-//     out int newShift)
-// {
-//     // 1. Collect all children into a buffer (Same as before)
-//     // Note: We are collecting Node<T> references. We are NOT looking inside them.
-//     var allChildren = new Node<T>[Constants.RRB_BRANCHING * 2 + 1];
-//     var count = 0;
-//
-//     if (left != null)
-//         for (var i = 0; i < left.Len - 1; i++) allChildren[count++] = left.Children[i]!;
-//
-//     if (centerShift == shift)
-//     {
-//         var cInternal = (InternalNode<T>)center;
-//         for (var i = 0; i < cInternal.Len; i++) allChildren[count++] = cInternal.Children[i]!;
-//     }
-//     else
-//     {
-//         allChildren[count++] = center;
-//     }
-//
-//     if (right != null)
-//         for (var i = 1; i < right.Len; i++) allChildren[count++] = right.Children[i]!;
-//
-//     // --- OPTIMIZATION STARTS HERE
-//
-//     // Case A: Everything fits in one node (<= 32 children)
-//     if (count <= Constants.RRB_BRANCHING)
-//     {
-//         var newChildren = new Node<T>?[count];
-//         Array.Copy(allChildren, newChildren, count);
-//         
-//         // We must calculate sizes because we just glued arbitrary nodes together.
-//         // But SetSizes only scans the 'count' children, it doesn't rebuild them.
-//         var newNode = new InternalNode<T>(newChildren, null, count, OwnerId.None);
-//         newShift = shift;
-//         return SetSizes(newNode, shift);
-//     }
-//
-//     // Case B: Too big, split into two nodes.
-//     // STRATEGY: Do not redistribute. Just cut in the middle.
-//     // This leaves the Left node fully packed (32) and the Right node with the remainder.
-//     // This preserves the "Dense Invariant" for the Left node!
-//     
-//     var leftLen = Constants.RRB_BRANCHING;
-//     var rightLen = count - Constants.RRB_BRANCHING;
-//
-//     var leftChildren = new Node<T>?[leftLen];
-//     var rightChildren = new Node<T>?[rightLen];
-//
-//     Array.Copy(allChildren, 0, leftChildren, 0, leftLen);
-//     Array.Copy(allChildren, leftLen, rightChildren, 0, rightLen);
-//
-//     // Create the two new children
-//     var newLeft = SetSizes(new InternalNode<T>(leftChildren, null, leftLen, OwnerId.None), shift);
-//     var newRight = SetSizes(new InternalNode<T>(rightChildren, null, rightLen, OwnerId.None), shift);
-//
-//     // Create the new parent
-//     newShift = shift + Constants.RRB_BITS;
-//     var parent = new InternalNode<T>(2, OwnerId.None);
-//     parent.Children[0] = newLeft;
-//     parent.Children[1] = newRight;
-//     
-//     // The parent is obviously relaxed/partial, so we set its sizes.
-//     return SetSizes(parent, newShift);
-// }
+    private static Node<T> Rebalance<T>(
+    InternalNode<T>? left,
+    Node<T> center,
+    InternalNode<T>? right,
+    int shift,
+    int centerShift,
+    out int newShift)
+{
+    // Collect all children into a buffer
+    var allChildren = new Node<T>[Constants.RRB_BRANCHING * 2 + 1];
+    var count = 0;
 
-    private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
+    if (left != null)
+        for (var i = 0; i < left.Len - 1; i++) allChildren[count++] = left.Children[i]!;
+
+    if (centerShift == shift)
     {
-        Span<int> sizes = stackalloc int[node.Len];
-        var sum = 0;
+        var cInternal = AsInternal(center);
+        for (var i = 0; i < cInternal.Len; i++) allChildren[count++] = cInternal.Children[i]!;
+    }
+    else
+    {
+        allChildren[count++] = center;
+    }
+
+    if (right != null)
+        for (var i = 1; i < right.Len; i++) allChildren[count++] = right.Children[i]!;
+
+
+    // Everything fits in one node (<= 32 children)
+    if (count <= Constants.RRB_BRANCHING)
+    {
+        var newChildren = new Node<T>?[count];
+        Array.Copy(allChildren, newChildren, count);
+        
+        // We must calculate sizes because we just glued arbitrary nodes together.
+        // But SetSizes only scans the 'count' children, it doesn't rebuild them.
+        var newNode = new InternalNode<T>(newChildren, null, count, OwnerId.None);
+        newShift = shift;
+        return SetSizes(newNode, shift);
+    }
+
+    // Too big, split into two nodes.
+    // Do not redistribute. Just cut in the middle.
+    // This leaves the Left node fully packed (32) and the Right node with the remainder.
+    // This preserves the "Dense Invariant" for the Left node!
+    
+    var leftLen = Constants.RRB_BRANCHING;
+    var rightLen = count - Constants.RRB_BRANCHING;
+
+    var leftChildren = new Node<T>?[leftLen];
+    var rightChildren = new Node<T>?[rightLen];
+
+    Array.Copy(allChildren, 0, leftChildren, 0, leftLen);
+    Array.Copy(allChildren, leftLen, rightChildren, 0, rightLen);
+
+    // Create the two new children
+    var newLeft = SetSizes(new InternalNode<T>(leftChildren, null, leftLen, OwnerId.None), shift);
+    var newRight = SetSizes(new InternalNode<T>(rightChildren, null, rightLen, OwnerId.None), shift);
+
+    // Create the new parent
+    newShift = shift + Constants.RRB_BITS;
+    var parent = new InternalNode<T>(2, OwnerId.None);
+    parent.Children[0] = newLeft;
+    parent.Children[1] = newRight;
+    
+    // The parent is obviously relaxed/partial, so we set its sizes.
+    return SetSizes(parent, newShift);
+}
+
+  private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
+    {
         var childShift = shift - Constants.RRB_BITS;
-
-        // Detect if the node is balanced (Standard Vector Trie).
-        // A node is balanced if all children (except possibly the last one) 
-        // are fully populated (size == 1 << shift).
-        var isBalanced = true;
         var expectedBlockSize = 1 << shift;
-
+        var isBalanced = true;
+  
+        // Scan Phase: Detect if we violate Dense Invariants
+        // We MUST verify sizes because Rebalance() might have put a partial node in the middle.
         for (var i = 0; i < node.Len; i++)
         {
             var child = node.Children[i]!;
-            sum += CountTree(child, childShift);
-            sizes[i] = sum;
-
-            // If we are not at the last child, this child MUST be full for the node to be balanced.
+  
+            // If child is Relaxed, we must be Relaxed.
+            if ((child.Flags & NodeFlags.IsRelaxed) != 0)
+            {
+                isBalanced = false;
+                break;
+            }
+  
+            // B. If child is Middle (not last), it MUST be full.
             if (i < node.Len - 1)
-                // The cumulative sum at index 'i' must be exactly (i + 1) * BlockSize
-                if (sum != (i + 1) * expectedBlockSize)
+            {
+                // For Leaf Nodes (Shift 5 parent -> Shift 0 child), 
+                // reading .Len is O(1). This avoids the CountTree overhead for the most common case.
+                int size;
+                if (childShift == 0)
+                {
+                    // Unsafe cast is safe here because of shift logic
+                    size = AsLeaf(child).Len;
+                }
+                else
+                {
+                    // For Internal nodes, we must traverse the spine to be sure.
+                    // This is O(Height), which is acceptable (max 5-6 steps).
+                    size = CountTree(child, childShift);
+                }
+  
+                if (size != expectedBlockSize)
+                {
                     isBalanced = false;
-
-            // If a child is Relaxed (has a SizeTable), THIS node must also be Relaxed (have a SizeTable).
-            // Because we need to subtract offsets before entering the relaxed child.
-            if ((child.Flags & NodeFlags.IsRelaxed) != 0) isBalanced = false;
+                    break;
+                }
+            }
+            // Note: We don't check the last child. 
+            // A Dense node is allowed to have a partial last child.
         }
-
-        // If balanced, discard the array and pass null.
-        // This enables the fast-path bit-shift indexing in RrbList.
-        return new InternalNode<T>(node.Children, isBalanced ? null : sizes.ToArray(), node.Len, OwnerId.None);
+  
+        // Fast Path: It's a valid Dense node. 
+        if (isBalanced)
+            return new InternalNode<T>(node.Children, null, node.Len, OwnerId.None);
+  
+  
+        // 2. Build Path: We are Relaxed. Build the table.
+        // We repeat the size logic here, but we can't share state easily without allocating.
+        // Since we only hit this path when necessary, the double-check is worth the memory savings on the Fast Path.
+        var sizes = new int[node.Len];
+        var sum = 0;
+  
+        for (var i = 0; i < node.Len; i++)
+        {
+            var child = node.Children[i]!;
+            int size;
+  
+            if ((child.Flags & NodeFlags.IsRelaxed) != 0)
+            {
+                // Trust the existing table (O(1))
+                var internalChild = AsInternal(child);
+                size = internalChild.SizeTable![internalChild.Len - 1];
+            }
+            else if (childShift == 0)
+            {
+                // Leaf Optimization (O(1))
+                size = AsLeaf(child).Len;
+            }
+            else
+            {
+                // Dense Internal traversal (O(Height))
+                size = CountTree(child, childShift);
+            }
+  
+            sum += size;
+            sizes[i] = sum;
+        }
+  
+        return new InternalNode<T>(node.Children, sizes, node.Len, OwnerId.None);
     }
-
+ 
+  
     internal static int CountTree<T>(Node<T> node, int shift)
     {
         var totalSize = 0;
+        
+        // Fast Path: Relaxed Node
+        // If the node has a SizeTable, we can stop immediately. The table holds the accurate total count.
+        if ((node.Flags & NodeFlags.IsRelaxed) != 0)
+            return AsInternal(node).SizeTable![node.Len - 1];
 
         // Iterate down the rightmost edge until we hit a leaf or a relaxed node
         while (shift > 0)
         {
-            // Optimization: Use unsafe cast for speed, we know it's Internal because shift > 0
             var internalNode = AsInternal(node);
-
-            // Fast Path: Relaxed Node
-            // If the node has a SizeTable, we can stop immediately. The table holds the accurate total count.
-            if ((internalNode.Flags & NodeFlags.IsRelaxed) != 0)
-                return totalSize + internalNode.SizeTable![internalNode.Len - 1];
-
-            // Dense Path
             // We know that in a dense node, all children except the last one are fully populated.
             // We calculate the size of the full siblings and accumulate it.
             // Math: (ChildCount - 1) * CapacityOfOneChild

@@ -9,7 +9,7 @@ using Collections;
 [MemoryDiagnoser]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 [Orderer(SummaryOrderPolicy.Declared)]
-[HideColumns("Error", "StdDev", "Rank", "Gen0", "Gen1", "Gen2")]
+[HideColumns("Error", "StdDev", "Rank")]
 public class Comparison
 {
     private const int RandomCount = 20; // Number of random updates per invocation

@@ -11,7 +11,7 @@ public class RrbFuzzTest
     private const int Iterations = 100_000;
     private const int MaxPoolSize = 20;
     private const int MaxInitialSize = 10000;
-    private static readonly int Seed = 10390883; //Environment.TickCount; // Seeds that caused issues: 42, 10390883
+    private static readonly int Seed = Environment.TickCount; // Seeds that caused issues: 42, 10390883
 
     private readonly Random _rng = new(Seed);
 
