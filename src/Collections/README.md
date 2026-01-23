@@ -107,14 +107,15 @@ debugging tail pushing. All in all, it was a net positive though.
 Because I value my sanity. I am not a programmer, and lets just call my theoretical rigor "throwing things at the
 compiler and hope my tests work". I spent more time debugging tail push issues than I will ever admit (concat was
 nothing in comparison, which is odd because it should be much more complex). A prefix has so many more issues than a
-tail.
+tail. Scalas finger trees offers some benefits over RRB trees, the largest one being increadibly fast slicing. Something like 4x the speed of this RRB tree implementation. The complexity however is astounding.
 
 # Potential speedups
 
-I do think there are some potential speedups that I see as someone who has never written anything serious in C# before.
-We could try to use arraypools to avoid allocations in some places. Split/Slice could probably be a lot faster. Merge
-could probably be faster, but I am not touching that with a 5 foot pole. Not yet anyway. Then there are some simple
-things. Don't rely on foreach to search is a simple one.
+I do think there are some potential speedups that I see as someone who has never written anything serious in C# before, but I believe I am done with most of the larger optimizations. There might be some tricks with changing recursion to iteration in some places, and some minor tricks. I am looking at minimizing allocations in some algorithms, but it is not always as simple as using ArrayPool since that might actually slow things down compared to using stackalloc.
+
+There might be places where loop unrolling would work, but that is also not really a definite win. In indexing for example, the loop is at most 7 levels deep. The JIT does wonders with the loop we have now. 
+
+Then there is using unsafe code when compiled with RELEASE. This I already do with casting (trusting shift > 0 to always mean internal nodes), but that is also not always a win because it leaves the JIT with less information. 
 
 # Benchmarks
 
@@ -135,49 +136,41 @@ WarmupCount=3
 
 ### Add to the end
 
-List beats everything with regards to adding to the end of the sequence. Hands down. The RrbBuilder is distant 2nd. This
-is bound to change a little bit, since there is one crucial optimization I can do to the builder: holding on to the
-right edge of the tree, meaning I can push a tail without hunting pointers. Scala vectors do something similar, but in a
-generalized manner.
+List will always beat everyone at adding a single element to the end of the sequence. This benchmark builds a list of N elements using Add, which makes things look different. At N = 10000 RrbBuilder is close second, but beating List at N = 100000.
 
-| Method                | InvocationCount | UnrollFactor | N      |        Mean | Allocated |
-|-----------------------|-----------------|--------------|--------|------------:|----------:|
-| RrbList.Add           | Default         | 16           | 100    |  16.1995 ns |     136 B |
-| RrbListUnbalanced.Add | Default         | 16           | 100    |  15.8833 ns |     128 B |
-| RrbBuilder.Add        | Default         | 16           | 100    |   5.1326 ns |       6 B |
-| ImmutableList.Add     | Default         | 16           | 100    |  51.0882 ns |     360 B |
-| List.Add              | Default         | 16           | 100    |   0.8748 ns |         - |
-| RrbList.Add           | Default         | 16           | 10000  |  17.1974 ns |     184 B |
-| RrbListUnbalanced.Add | Default         | 16           | 10000  |  17.4597 ns |     176 B |
-| RrbBuilder.Add        | Default         | 16           | 10000  |   5.5684 ns |       6 B |
-| ImmutableList.Add     | Default         | 16           | 10000  |  99.1471 ns |     696 B |
-| List.Add              | Default         | 16           | 10000  |   0.8655 ns |         - |
-| RrbList.Add           | Default         | 16           | 100000 |  15.4483 ns |     120 B |
-| RrbListUnbalanced.Add | Default         | 16           | 100000 |  16.3114 ns |     120 B |
-| RrbBuilder.Add        | Default         | 16           | 100000 |   5.2880 ns |       6 B |
-| ImmutableList.Add     | Default         | 16           | 100000 | 127.8313 ns |     840 B |
-| List.Add              | Default         | 16           | 100000 |   0.8616 ns |         - |
+| Method                     | Job        | InvocationCount | UnrollFactor | N      | Mean               | Allocated  |
+|--------------------------- |----------- |---------------- |------------- |------- |-------------------:|-----------:|
+| RrbList.Add                | DefaultJob | Default         | 16           | 100    |      1,169.9679 ns |    14128 B |
+| RrbBuilder.Add             | DefaultJob | Default         | 16           | 100    |        215.3139 ns |     5472 B |
+| ImmutableList.Add          | DefaultJob | Default         | 16           | 100    |      5,694.3567 ns |    34704 B |
+| List.Add                   | DefaultJob | Default         | 16           | 100    |        120.7431 ns |     1184 B |
+| RrbList.Add                | DefaultJob | Default         | 16           | 10000  |    133,867.2184 ns |  1508160 B |
+| RrbBuilder.Add             | DefaultJob | Default         | 16           | 10000  |      9,068.9866 ns |    68184 B |
+| ImmutableList.Add          | DefaultJob | Default         | 16           | 10000  |  1,179,852.3205 ns |  6653616 B |
+| List.Add                   | DefaultJob | Default         | 16           | 10000  |      7,787.4929 ns |   131400 B |
+| RrbList.Add                | DefaultJob | Default         | 16           | 100000 |  1,621,085.8071 ns | 15773616 B |
+| RrbBuilder.Add             | DefaultJob | Default         | 16           | 100000 |     84,081.5073 ns |   663144 B |
+| ImmutableList.Add          | DefaultJob | Default         | 16           | 100000 | 22,806,083.6500 ns | 82508648 B |
+| List.Add                   | DefaultJob | Default         | 16           | 100000 |    108,542.9375 ns |  1049413 B |
 
 ### Indexing
 
-This benchmark indexes into the data at three different points. List is yet again the fastest. RrbList is slightly
-faster than immutableList. I have hade a pretty big regression here with regard to the dense list. The proper numbers
-for dense lists should be something closer to 2.7, 3.5 and 5ns. (This is fixed in the main branch since some time.)
+This benchmark indexes into the data at three different points. List is of course by far the fastest. RrbList is slightly faster than immutableList for small lists, but much faster for larger ones.  
 
-| Method                         | InvocationCount | UnrollFactor | N      |       Mean | Allocated |
-|--------------------------------|-----------------|--------------|--------|-----------:|----------:|
-| &#39;RrbList[i]&#39;           | Default         | 16           | 100    |  3.0570 ns |         - |
-| &#39;RrbListUnbalanced[i]&#39; | Default         | 16           | 100    |  5.9842 ns |         - |
-| &#39;ImmutableList[i]&#39;     | Default         | 16           | 100    |  6.1528 ns |         - |
-| &#39;List[i]&#39;              | Default         | 16           | 100    |  0.5193 ns |         - |
-| &#39;RrbList[i]&#39;           | Default         | 16           | 10000  |  7.4451 ns |         - |
-| &#39;RrbListUnbalanced[i]&#39; | Default         | 16           | 10000  | 10.2834 ns |         - |
-| &#39;ImmutableList[i]&#39;     | Default         | 16           | 10000  | 12.9971 ns |         - |
-| &#39;List[i]&#39;              | Default         | 16           | 10000  |  0.5137 ns |         - |
-| &#39;RrbList[i]&#39;           | Default         | 16           | 100000 | 15.8828 ns |         - |
-| &#39;RrbListUnbalanced[i]&#39; | Default         | 16           | 100000 | 22.6037 ns |         - |
-| &#39;ImmutableList[i]&#39;     | Default         | 16           | 100000 | 16.3123 ns |         - |
-| &#39;List[i]&#39;              | Default         | 16           | 100000 |  0.5200 ns |         - |
+| Method                     | Job        | InvocationCount | UnrollFactor | N      | Mean               | Allocated  |
+|--------------------------- |----------- |---------------- |------------- |------- |-------------------:|-----------:|
+| 'RrbList[i]'               | DefaultJob | Default         | 16           | 100    |          2.7946 ns |          - |
+| 'RrbListUnbalanced[i]'     | DefaultJob | Default         | 16           | 100    |          4.8442 ns |          - |
+| 'ImmutableList[i]'         | DefaultJob | Default         | 16           | 100    |          6.1162 ns |          - |
+| 'List[i]'                  | DefaultJob | Default         | 16           | 100    |          0.5200 ns |          - |
+| 'RrbList[i]'               | DefaultJob | Default         | 16           | 10000  |          3.8996 ns |          - |
+| 'RrbListUnbalanced[i]'     | DefaultJob | Default         | 16           | 10000  |          9.6498 ns |          - |
+| 'ImmutableList[i]'         | DefaultJob | Default         | 16           | 10000  |         12.9889 ns |          - |
+| 'List[i]'                  | DefaultJob | Default         | 16           | 10000  |          1.4091 ns |          - |
+| 'RrbList[i]'               | DefaultJob | Default         | 16           | 100000 |          4.7132 ns |          - |
+| 'RrbListUnbalanced[i]'     | DefaultJob | Default         | 16           | 100000 |         13.6766 ns |          - |
+| 'ImmutableList[i]'         | DefaultJob | Default         | 16           | 100000 |         16.3973 ns |          - |
+| 'List[i]'                  | DefaultJob | Default         | 16           | 100000 |          0.5084 ns |          - |
 
 ### Insert
 
@@ -185,20 +178,21 @@ Here the unbalanced RrbList wins big. Something is going on with the small List,
 at N=100 but the slowest from something like N=500. Don't look too much at the dense list. It will degrade into an
 unbalanced list on the first insert, which will make later inserts faster.
 
-| Method                   | InvocationCount | UnrollFactor | N      |           Mean | Allocated |
-|--------------------------|-----------------|--------------|--------|---------------:|----------:|
-| RrbList.Insert           | Default         | 16           | 100    |     55.4892 ns |     616 B |
-| RrbListUnbalanced.Insert | Default         | 16           | 100    |     37.9352 ns |     376 B |
-| ImmutableList.Insert     | Default         | 16           | 100    |     54.1717 ns |     360 B |
-| List.Insert              | Default         | 16           | 100    | 29,213.7741 ns |         - |
-| RrbList.Insert           | Default         | 16           | 10000  |    154.9207 ns |    1296 B |
-| RrbListUnbalanced.Insert | Default         | 16           | 10000  |     88.4387 ns |     936 B |
-| ImmutableList.Insert     | Default         | 16           | 10000  |    105.0094 ns |     696 B |
-| List.Insert              | Default         | 16           | 10000  | 29,330.2317 ns |         - |
-| RrbList.Insert           | Default         | 16           | 100000 |    281.4931 ns |    1816 B |
-| RrbListUnbalanced.Insert | Default         | 16           | 100000 |    114.1616 ns |    1344 B |
-| ImmutableList.Insert     | Default         | 16           | 100000 |    129.0683 ns |     840 B |
-| List.Insert              | Default         | 16           | 100000 | 30,939.2367 ns |         - |
+
+| Method                     | Job        | InvocationCount | UnrollFactor | N      | Mean               | Allocated  |
+|--------------------------- |----------- |---------------- |------------- |------- |-------------------:|-----------:|
+| RrbList.Insert             | DefaultJob | Default         | 16           | 100    |         55.9802 ns |      616 B |
+| RrbListUnbalanced.Insert   | DefaultJob | Default         | 16           | 100    |         38.6932 ns |      376 B |
+| ImmutableList.Insert       | DefaultJob | Default         | 16           | 100    |         55.6263 ns |      360 B |
+| List.Insert                | DefaultJob | Default         | 16           | 100    |          9.0131 ns |          - |
+| RrbList.Insert             | DefaultJob | Default         | 16           | 10000  |        154.3614 ns |     1296 B |
+| RrbListUnbalanced.Insert   | DefaultJob | Default         | 16           | 10000  |         83.4055 ns |      936 B |
+| ImmutableList.Insert       | DefaultJob | Default         | 16           | 10000  |        106.1314 ns |      696 B |
+| List.Insert                | DefaultJob | Default         | 16           | 10000  |        130.8397 ns |          - |
+| RrbList.Insert             | DefaultJob | Default         | 16           | 100000 |        244.3082 ns |     1816 B |
+| RrbListUnbalanced.Insert   | DefaultJob | Default         | 16           | 100000 |        112.7059 ns |     1344 B |
+| ImmutableList.Insert       | DefaultJob | Default         | 16           | 100000 |        131.2398 ns |      840 B |
+| List.Insert                | DefaultJob | Default         | 16           | 100000 |      1,526.9674 ns |          - |
 
 ### Iteration
 
@@ -206,40 +200,40 @@ The absolute fastest way to iterate over a List is using for(var i=0; i < mylist
 some safety checks baked in to make it thread safe. External iteration on a list is the fastest in all cases.
 ImmutableList is slow. Internal iteration of the tree (RrbList.Fold) is sliiightly faster than enumerating a List.
 
-| Method                    | InvocationCount | UnrollFactor | N      |            Mean | Allocated |
-|---------------------------|-----------------|--------------|--------|----------------:|----------:|
-| RrbList.Foreach           | Default         | 16           | 100    |      43.3697 ns |     184 B |
-| RrbList.Fold              | Default         | 16           | 100    |      27.4774 ns |         - |
-| RrbListUnbalanced.Foreach | Default         | 16           | 100    |      42.4336 ns |     184 B |
-| ImmutableList.Foreach     | Default         | 16           | 100    |     361.9875 ns |         - |
-| List.Foreach              | Default         | 16           | 100    |      30.4741 ns |         - |
-| RrbList.Foreach           | Default         | 16           | 10000  |   7,665.9175 ns |     184 B |
-| RrbList.Fold              | Default         | 16           | 10000  |   2,557.7334 ns |         - |
-| RrbListUnbalanced.Foreach | Default         | 16           | 10000  |   7,925.0362 ns |     184 B |
-| ImmutableList.Foreach     | Default         | 16           | 10000  |  39,648.4692 ns |         - |
-| List.Foreach              | Default         | 16           | 10000  |   2,957.6831 ns |         - |
-| RrbList.Foreach           | Default         | 16           | 100000 |  75,993.2233 ns |     184 B |
-| RrbList.Fold              | Default         | 16           | 100000 |  25,804.5319 ns |         - |
-| RrbListUnbalanced.Foreach | Default         | 16           | 100000 |  79,131.4468 ns |     184 B |
-| ImmutableList.Foreach     | Default         | 16           | 100000 | 511,009.9098 ns |         - |
-| List.Foreach              | Default         | 16           | 100000 |  29,519.2055 ns |         - |
+| Method                     | Job        | InvocationCount | UnrollFactor | N      | Mean               | Allocated  |
+|--------------------------- |----------- |---------------- |------------- |------- |-------------------:|-----------:|
+| RrbList.Foreach            | DefaultJob | Default         | 16           | 100    |         45.1823 ns |      184 B |
+| RrbList.Fold               | DefaultJob | Default         | 16           | 100    |         26.8854 ns |          - |
+| RrbListUnbalanced.Foreach  | DefaultJob | Default         | 16           | 100    |         42.0788 ns |      184 B |
+| ImmutableList.Foreach      | DefaultJob | Default         | 16           | 100    |        356.2626 ns |          - |
+| List.Foreach               | DefaultJob | Default         | 16           | 100    |         30.2207 ns |          - |
+| RrbList.Foreach            | DefaultJob | Default         | 16           | 10000  |      7,744.6192 ns |      184 B |
+| RrbList.Fold               | DefaultJob | Default         | 16           | 10000  |      2,668.9276 ns |          - |
+| RrbListUnbalanced.Foreach  | DefaultJob | Default         | 16           | 10000  |      7,937.8595 ns |      184 B |
+| ImmutableList.Foreach      | DefaultJob | Default         | 16           | 10000  |     38,498.2915 ns |          - |
+| List.Foreach               | DefaultJob | Default         | 16           | 10000  |      2,970.4183 ns |          - |
+| RrbList.Foreach            | DefaultJob | Default         | 16           | 100000 |     76,180.7899 ns |      184 B |
+| RrbList.Fold               | DefaultJob | Default         | 16           | 100000 |     25,707.0896 ns |          - |
+| RrbListUnbalanced.Foreach  | DefaultJob | Default         | 16           | 100000 |     79,558.4544 ns |      184 B |
+| ImmutableList.Foreach      | DefaultJob | Default         | 16           | 100000 |    516,728.2509 ns |          - |
+| List.Foreach               | DefaultJob | Default         | 16           | 100000 |     29,484.9584 ns |          - |
 
 ### Merge
+List, being mutable, became _very_ large during this test, and ended up getting more than 2 billion items. Trust me when I say it would 
+be slow anyway.
 
-ImmutableList is going to be very fast here. AddRange to a AVL tree is fast. List, being mutable, became _very_ large
-during this test, and ended up getting more than 2 billion items.
+| Method                     | InvocationCount | UnrollFactor | N      | Mean               | Gen0      | Gen1     | Gen2     | Allocated  |
+|--------------------------- |---------------- |------------- |------- |-------------------:|----------:|---------:|---------:|-----------:|
+| RrbList.Merge              | Default         | 16           | 100    |        189.7629 ns |    0.1013 |   0.0002 |        - |     1696 B |
+| RrbListUnbalanced.Merge    | Default         | 16           | 100    |        189.0178 ns |    0.1037 |        - |        - |     1736 B |
+| ImmutableList.AddRange     | Default         | 16           | 100    |        282.0089 ns |    0.0415 |        - |        - |      696 B |
+| RrbList.Merge              | Default         | 16           | 10000  |        335.2976 ns |    0.1798 |   0.0005 |        - |     3008 B |
+| RrbListUnbalanced.Merge    | Default         | 16           | 10000  |        331.1668 ns |    0.1912 |   0.0005 |        - |     3200 B |
+| ImmutableList.AddRange     | Default         | 16           | 10000  |        410.4530 ns |    0.0644 |        - |        - |     1080 B |
+| RrbList.Merge              | Default         | 16           | 100000 |        323.2425 ns |    0.1988 |   0.0010 |        - |     3328 B |
+| RrbListUnbalanced.Merge    | Default         | 16           | 100000 |        362.6298 ns |    0.2275 |   0.0010 |        - |     3808 B |
+| ImmutableList.AddRange     | Default         | 16           | 100000 |        425.4831 ns |    0.0701 |        - |        - |     1176 B |
 
-| Method                  | InvocationCount | UnrollFactor | N      |        Mean | Allocated |
-|-------------------------|-----------------|--------------|--------|------------:|----------:|
-| RrbList.Merge           | Default         | 16           | 100    | 384.1996 ns |    2008 B |
-| RrbListUnbalanced.Merge | Default         | 16           | 100    | 377.4185 ns |    2048 B |
-| ImmutableList.AddRange  | Default         | 16           | 100    | 277.5808 ns |     696 B |
-| RrbList.Merge           | Default         | 16           | 10000  | 418.0334 ns |    2376 B |
-| RrbListUnbalanced.Merge | Default         | 16           | 10000  | 411.7132 ns |    2376 B |
-| ImmutableList.AddRange  | Default         | 16           | 10000  | 401.5184 ns |    1080 B |
-| RrbList.Merge           | Default         | 16           | 100000 | 565.9292 ns |    3384 B |
-| RrbListUnbalanced.Merge | Default         | 16           | 100000 | 611.4363 ns |    3640 B |
-| ImmutableList.AddRange  | Default         | 16           | 100000 | 423.3641 ns |    1176 B |
 
 ### RemoveAt
 
@@ -285,20 +279,19 @@ faster, but it would still be something like 5x slower than List.
 
 ### Slice
 
-.
-This takes a slice of the datastructure (between 25% and 50% of the list). Is the fastest from something like N=300.
+This takes a slice of the datastructure (between 25% and 50% of the list).
 
-| Method                  | InvocationCount | UnrollFactor | N      |            Mean | Allocated |
-|-------------------------|-----------------|--------------|--------|----------------:|----------:|
-| RrbList.Slice           | Default         | 16           | 100    |      54.9605 ns |     488 B |
-| RrbListUnbalanced.Slice | Default         | 16           | 100    |      60.3968 ns |     520 B |
-| ImmutableList.GetRange  | Default         | 16           | 100    |     208.9326 ns |    1224 B |
-| List.GetRange           | Default         | 16           | 100    |       9.4254 ns |     160 B |
-| RrbList.Slice           | Default         | 16           | 10000  |     113.1438 ns |    1232 B |
-| RrbListUnbalanced.Slice | Default         | 16           | 10000  |     111.1560 ns |     976 B |
-| ImmutableList.GetRange  | Default         | 16           | 10000  |  31,596.8255 ns |  120024 B |
-| List.GetRange           | Default         | 16           | 10000  |     238.4689 ns |   10056 B |
-| RrbList.Slice           | Default         | 16           | 100000 |     157.8932 ns |    1688 B |
-| RrbListUnbalanced.Slice | Default         | 16           | 100000 |     167.1771 ns |    1680 B |
-| ImmutableList.GetRange  | Default         | 16           | 100000 | 922,213.7533 ns | 1200024 B |
-| List.GetRange           | Default         | 16           | 100000 |   9,917.8972 ns |  100107 B |
+| Method                     | Job        | InvocationCount | UnrollFactor | N      | Mean               | Allocated  |
+|--------------------------- |----------- |---------------- |------------- |------- |-------------------:|-----------:|
+| RrbList.Slice              | DefaultJob | Default         | 16           | 100    |         20.6199 ns |      176 B |
+| RrbListUnbalanced.Slice    | DefaultJob | Default         | 16           | 100    |         21.1942 ns |      176 B |
+| ImmutableList.GetRange     | DefaultJob | Default         | 16           | 100    |        222.2364 ns |     1224 B |
+| List.GetRange              | DefaultJob | Default         | 16           | 100    |          9.6182 ns |      160 B |
+| RrbList.Slice              | DefaultJob | Default         | 16           | 10000  |         93.1176 ns |     1024 B |
+| RrbListUnbalanced.Slice    | DefaultJob | Default         | 16           | 10000  |         95.8241 ns |      760 B |
+| ImmutableList.GetRange     | DefaultJob | Default         | 16           | 10000  |     31,093.4738 ns |   120024 B |
+| List.GetRange              | DefaultJob | Default         | 16           | 10000  |        243.9510 ns |    10056 B |
+| RrbList.Slice              | DefaultJob | Default         | 16           | 100000 |        130.8667 ns |     1424 B |
+| RrbListUnbalanced.Slice    | DefaultJob | Default         | 16           | 100000 |        163.3413 ns |     1512 B |
+| ImmutableList.GetRange     | DefaultJob | Default         | 16           | 100000 |  1,001,365.5427 ns |  1200024 B |
+| List.GetRange              | DefaultJob | Default         | 16           | 100000 |      9,884.0617 ns |   100107 B |
