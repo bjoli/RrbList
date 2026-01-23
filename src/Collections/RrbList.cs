@@ -524,10 +524,13 @@ public sealed partial class RrbList<T>
      *     Merges two lists together.
      * </summary>
      * <param name="other">The list to merge with the current list.</param>
+     * <param name="pure">
+     *   Whether to preform a pure concatenation. This is about 50% slower, but leaves the tree
+     *   in a cleaner state, where some operations may be slightly faster. Defaults to false.
+     * </param>
      * <returns>A new list containing elements from both lists.</returns>
      */
-
-    public RrbList<T> Merge(RrbList<T> other)
+    public RrbList<T> Merge(RrbList<T> other, bool pure = false)
     {
         if (other.Count == 0) return this;
         if (Count == 0) return other;
@@ -584,7 +587,7 @@ public sealed partial class RrbList<T>
         // We can safely assume leftTree is not null here because:
         // if Count > 0 and TailLen > 0, leftTree is set by AppendLeafToTree.
         // if Count > 0 and TailLen == 0, Root must be non-null (otherwise Count would be 0).
-        var combinedTree = RrbAlgorithm.Concat(leftTree!, other.Root!, newLeftShift, other.Shift, out var combinedShift);
+        var combinedTree = RrbAlgorithm.Concat(leftTree!, other.Root!, newLeftShift, other.Shift, out var combinedShift, !pure);
 
         // other.Tail is preserved as the new tail
         return new RrbList<T>(combinedTree, other.Tail, Count + other.Count, combinedShift, other.TailLen);
