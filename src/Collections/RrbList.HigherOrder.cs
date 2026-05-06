@@ -40,6 +40,22 @@ public sealed partial class RrbList<T>
         return state;
     }
 
+    public T Reduce(Func<T, T, T> func)
+    {
+        if (this.Count == 0)
+        {
+            throw new InvalidOperationException("Cannot reduce an empty list.");
+        }
+
+        var state = this[0];
+        
+        // Start iterating from index 1. 
+        // ForEach will skip the first element in O(log N) time.
+        this.ForEach(item => state = func(state, item), index: 1);
+        
+        return state;
+    }
+
     private TState FoldNode<TState>(Node<T> node, int shift, TState state, Func<TState, T, TState> func)
     {
         // Base case: We are at a leaf node
@@ -65,7 +81,7 @@ public sealed partial class RrbList<T>
         return state;
     }
 
-
+    
     /**
      * <summary>
      *     High-performance internal iterator.
@@ -201,7 +217,7 @@ public sealed partial class RrbList<T>
         // Fast path for Dense nodes
         if (internalNode.SizeTable == null)
         {
-            var blockSize = 1 << childShift;
+            var blockSize = 1 << (childShift + Constants.RRB_BITS);
 
             for (var i = 0; i < internalNode.Len; i++)
             {
@@ -258,5 +274,110 @@ public sealed partial class RrbList<T>
                 prevTotal = currentTotal;
             }
         }
+    }
+
+    /**
+     * <summary>
+     * Runs mapper on each value in the RrbList and returns a new list with all the mapped values
+     * </summary>
+     * <typeparam name="TResult">The type of the value returned by mapper.</typeparam>
+     * <param name="mapper">A transform function to apply to each element.</param>
+     * <returns>A new RrbList containing the mapped elements.</returns>
+     */
+    public RrbList<TResult> Map<TResult>(Func<T, TResult> mapper)
+    {
+        if (mapper == null) throw new ArgumentNullException(nameof(mapper));
+        if (Count == 0) return RrbList<TResult>.Empty;
+
+        // 1. Map the Tree
+        Node<TResult>? newRoot = null;
+        if (Root != null)
+        {
+            newRoot = MapNode(Root, Shift, mapper);
+        }
+
+        // 2. Map the Tail
+        TResult[] newTail = Array.Empty<TResult>();
+        if (TailLen > 0)
+        {
+            newTail = new TResult[TailLen];
+            for (var i = 0; i < TailLen; i++)
+            {
+                newTail[i] = mapper(Tail[i]);
+            }
+        }
+
+        return new RrbList<TResult>(newRoot, newTail, Count, Shift, TailLen);
+    }
+
+    // This function copies it's way down to the leaf nodes and then runs a copy of the 
+    // leaf with mapper run on every element. This is by far the fastest way to run a function on each 
+    // element of the RrbList.
+    private static Node<TResult> MapNode<TResult>(Node<T> node, int shift, Func<T, TResult> mapper)
+    {
+        // Base case: Map values in the leaf
+        if (shift == 0)
+        {
+            var leaf = RrbAlgorithm.AsLeaf(node);
+            var newItems = new TResult[leaf.Len];
+            
+            for (var i = 0; i < leaf.Len; i++)
+            {
+                newItems[i] = mapper(leaf.Items[i]);
+            }
+            
+            return new LeafNode<TResult>(newItems, leaf.Len, OwnerId.None);
+        }
+
+        // Recursive step: Map internal nodes
+        var internalNode = RrbAlgorithm.AsInternal(node);
+        var newChildren = new Node<TResult>?[internalNode.Len];
+
+        for (var i = 0; i < internalNode.Len; i++)
+        {
+            newChildren[i] = MapNode(internalNode.Children[i]!, shift - Constants.RRB_BITS, mapper);
+        }
+
+        // Because the structural layout is identical, 
+        // we can safely pass the exact same SizeTable reference without allocating a new one.
+        return new InternalNode<TResult>(newChildren, internalNode.SizeTable, internalNode.Len, OwnerId.None);
+    }
+    
+    
+    /**
+     * <summary>
+     * Filters the elements of the list based on a predicate.
+     * </summary>
+     * <param name="filter">A function to test each element for a condition.</param>
+     * <returns>A new RrbList containing the elements that satisfy the condition.</returns>
+     */
+    public RrbList<T> Filter(Func<T, bool> filter)
+    {
+        var builder = new RrbBuilder<T>();
+        this.ForEach(elem =>
+        {
+            if (filter(elem))
+            {
+                builder.Add(elem);
+            }
+        });
+        return builder.ToImmutable();
+    }
+
+    public T? Find(Func<T, bool> predicate)
+    {
+        T? res = default(T);
+        Iter(elem =>
+        {
+            if (predicate(elem))
+            {
+                res = elem;
+                return false;
+            }
+
+            return true;
+        });
+
+        return res;
     }
 }

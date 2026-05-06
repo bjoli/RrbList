@@ -180,7 +180,7 @@ public sealed partial class RrbList<T>
             if (shift == 0)
                 return RrbAlgorithm.AsLeaf(node).Items[index];
 
-            while ((node.Flags & NodeFlags.IsRelaxed) != 0)
+            while (node.IsRelaxed())
             {
                 var internalNode = RrbAlgorithm.AsInternal(node);
                 var (childIndex, relativeIndex) = RrbAlgorithm.GetRelaxedIndexAvx(internalNode, index, shift);
@@ -431,7 +431,7 @@ public sealed partial class RrbList<T>
             int tempShift = Shift;
             
             // Squash the tree.
-            while (newRoot!.Len == 1 && tempShift < 0)
+            while (newRoot!.Len == 1 && tempShift > 0)
             {
                 newRoot = RrbAlgorithm.AsInternal(newRoot).Children[0];
                 tempShift -= Constants.RRB_BITS;

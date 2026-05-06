@@ -402,7 +402,7 @@ internal static class RrbAlgorithm
             var child = node.Children[i]!;
   
             // If child is Relaxed, we must be Relaxed.
-            if ((child.Flags & NodeFlags.IsRelaxed) != 0)
+            if (child.IsRelaxed())
             {
                 isBalanced = false;
                 break;
@@ -452,7 +452,7 @@ internal static class RrbAlgorithm
             var child = node.Children[i]!;
             int size;
   
-            if ((child.Flags & NodeFlags.IsRelaxed) != 0)
+            if (child.IsRelaxed())
             {
                 // Trust the existing table (O(1))
                 var internalChild = AsInternal(child);
@@ -483,7 +483,7 @@ internal static class RrbAlgorithm
         
         // Fast Path: Relaxed Node
         // If the node has a SizeTable, we can stop immediately. The table holds the accurate total count.
-        if ((node.Flags & NodeFlags.IsRelaxed) != 0)
+        if (node.IsRelaxed())
             return AsInternal(node).SizeTable![node.Len - 1];
 
         // Iterate down the rightmost edge until we hit a leaf or a relaxed node
@@ -627,7 +627,7 @@ internal static class RrbAlgorithm
         // 1. The original node was already Relaxed.
         // 2. We sliced the LEFT edge (creating a partial first child).
         // If we only sliced the RIGHT edge of a Dense node, it remains Dense (last child allowed to be partial).
-        var isOriginalRelaxed = (internalNode.Flags & NodeFlags.IsRelaxed) != 0;
+        var isOriginalRelaxed = internalNode.IsRelaxed();
         var mustBeRelaxed = isOriginalRelaxed || (startSubIdx > 0);
 
         int[]? newTable = mustBeRelaxed ? new int[newLen] : null;
@@ -728,7 +728,7 @@ internal static class RrbAlgorithm
         // Rebuild Size Table
         // If we slice from the left, indices shift, so we almost always need a SizeTable.
         // Exception: If we dropped exact whole subtrees from a balanced node, it stays balanced!
-        var staysBalanced = (internalNode.Flags & NodeFlags.IsRelaxed) == 0 && dropInChild == 0;
+        var staysBalanced = internalNode.IsDense() && dropInChild == 0;
 
         int[]? newSizeTable = null;
         if (!staysBalanced)
@@ -914,7 +914,7 @@ internal static class RrbAlgorithm
                 editable.Children[lastIdx] = newLastChild;
 
                 // Update metadata (SizeTable) ONLY if necessary
-                if ((editable.Flags & NodeFlags.IsRelaxed) != 0)
+                if (editable.IsRelaxed())
                     editable.SizeTable![lastIdx] += tail.Len;
 
                 return editable;
@@ -937,7 +937,7 @@ internal static class RrbAlgorithm
         // Violation happens if we are currently Dense, but the LAST child is not full.
         var requiresRelaxation = false;
 
-        if ((node.Flags & NodeFlags.IsRelaxed) == 0 && node.Len > 0)
+        if (node.IsDense() && node.Len > 0)
         {
             // We only strictly need to check this at the leaf-parent level (Shift 5)
             // or if we trust that higher levels handle their own density.
@@ -970,7 +970,7 @@ internal static class RrbAlgorithm
         editable.Children[editable.Len] = childToAdd;
 
         // 3. Update SizeTable (It exists if we were already relaxed OR if we just forced it)
-        if ((editable.Flags & NodeFlags.IsRelaxed) != 0)
+        if (editable.IsRelaxed())
         {
             var prevTotal = editable.Len > 0 ? editable.SizeTable![editable.Len - 1] : 0;
 
@@ -1102,7 +1102,7 @@ internal static class RrbAlgorithm
         // 1. The child itself is Relaxed (Relaxation bubbles up).
         // 2. The child is not physically full (Violates strict Dense invariant).
 
-        var childIsRelaxed = (child.Flags & NodeFlags.IsRelaxed) != 0;
+        var childIsRelaxed = child.IsRelaxed();
 
         // Calculate if strictly full (1 << shift items)
         // Since this is a single path, the total size is just the tail length.
@@ -1157,7 +1157,7 @@ internal static class RrbAlgorithm
         int shift)
     {
         // Dense / Balanced Path (No SizeTable)
-        if ((node.Flags & NodeFlags.IsRelaxed) == 0)
+        if (node.IsDense())
         {
             var childIndex = (index >> shift) & Constants.RRB_MASK;
             var childStart = childIndex << shift;
@@ -1499,7 +1499,7 @@ internal static class RrbAlgorithm
                 Array.Copy(internalNode.SizeTable, newSizeTable, internalNode.Len);
                 for (var i = childIndex; i < internalNode.Len; i++) newSizeTable[i]++;
             }
-            else if (childIndex < internalNode.Len - 1 || (result.NewNode.Flags & NodeFlags.IsRelaxed) != 0)
+            else if (childIndex < internalNode.Len - 1 || result.NewNode.IsRelaxed())
             {
                 // DENSE -> RELAXED (Math Optimization)
                 // I just assume any insertion becomes relaxed. For my sanity

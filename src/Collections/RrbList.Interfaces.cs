@@ -24,7 +24,7 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         return Empty;
     }
 
-    public IImmutableList<T> AddRange(IEnumerable<T> items)
+    public RrbList<T> AddRange(IEnumerable<T> items)
     {
         if (items == null) throw new ArgumentNullException(nameof(items));
 
@@ -38,8 +38,13 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
 
         return Merge(other);
     }
+    
+    IImmutableList<T> IImmutableList<T>.AddRange(IEnumerable<T> items)
+    {
+        return AddRange(items);
+    }
 
-    public IImmutableList<T> InsertRange(int index, IEnumerable<T> items)
+    public RrbList<T> InsertRange(int index, IEnumerable<T> items)
     {
         if (index < 0 || index > Count) throw new ArgumentOutOfRangeException(nameof(index));
         if (items == null) throw new ArgumentNullException(nameof(items));
@@ -58,8 +63,13 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         // 3. Merge: Left + Middle + Right (O(log N))
         return left.Merge(middle).Merge(right);
     }
+    
+    IImmutableList<T> IImmutableList<T>.InsertRange(int index, IEnumerable<T> items)
+    {
+        return InsertRange(index, items);
+    }
 
-    public IImmutableList<T> RemoveRange(int index, int count)
+    public RrbList<T> RemoveRange(int index, int count)
     {
         if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
         if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
@@ -79,7 +89,11 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         return left.Merge(right);
     }
 
-    // Inside RrbList<T>
+    IImmutableList<T> IImmutableList<T>.RemoveRange(int index, int count)
+    {
+        return RemoveRange(index, count);
+    }
+
 
     /**
      * <summary>
@@ -89,7 +103,7 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
      * <param name="equalityComparer">The equality comparer to use for locating the items.</param>
      * <returns>A new list with the items removed.</returns>
      */
-    public IImmutableList<T> RemoveRange(IEnumerable<T> items, IEqualityComparer<T>? equalityComparer)
+    public RrbList<T> RemoveRange(IEnumerable<T> items, IEqualityComparer<T>? equalityComparer)
     {
         if (items == null) throw new ArgumentNullException(nameof(items));
 
@@ -132,6 +146,11 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
 
         if (!changed) return this;
         return builder.ToImmutable();
+    }
+
+    IImmutableList<T> IImmutableList<T>.RemoveRange(IEnumerable<T> items, IEqualityComparer<T>? equalityComparer)
+    {
+        return RemoveRange(items, equalityComparer);
     }
 
     // --- IImmutableList<T> Search Operations ---

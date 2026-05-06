@@ -31,7 +31,7 @@ internal abstract class Node<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsLeaf()
     {
-        return (Flags & NodeFlags.IsLeaf) == 0;
+        return (Flags & NodeFlags.IsLeaf) != 0;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
