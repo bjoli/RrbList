@@ -8,11 +8,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="BenchmarkDotNet" Version="0.15.6"/>
+        <PackageReference Include="BenchmarkDotNet" Version="0.15.6" />
+        <PackageReference Include="FSharp.Core" Version="10.1.203" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\Collections\Collections.csproj"/>
+        <ProjectReference Include="..\..\src\Collections\Collections.csproj" />
     </ItemGroup>
 
 </Project>

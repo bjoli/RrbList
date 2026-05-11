@@ -3,6 +3,7 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Order;
 using Collections;
+using Microsoft.FSharp.Collections;
 
 // Ensure this matches your namespace
 
@@ -17,6 +18,8 @@ public class Comparison
     private ImmutableList<int> _immutableList;
     private List<int> _list;
     private List<int> _listChunk;
+
+    private FSharpList<int> _fsharpList;
 
     private int _middleIndex;
 
@@ -50,6 +53,7 @@ public class Comparison
 
         _immutableList = ImmutableList.Create(data);
         _list = new List<int>(data);
+        _fsharpList = ListModule.OfSeq(data);
 
         // 3. Setup Helpers
         _middleIndex = N / 2;
@@ -218,7 +222,22 @@ public class Comparison
     {
         return _rrbList.Fold(0, (x, y) => x + y);
     }
-
+    [Benchmark(Description = "FSharpList.WhileTail")]
+[BenchmarkCategory("Iteration")]
+public int Iterate_FSharpList()
+{
+    var sum = 0;
+    var current = _fsharpList;
+    
+    // Fastest iteration for F# lists in C#
+    while (!current.IsEmpty)
+    {
+        sum += current.Head;
+        current = current.Tail;
+    }
+    
+    return sum;
+}
     [Benchmark(Description = "RrbListUnbalanced.Foreach")]
     [BenchmarkCategory("Iteration")]
     public int Foreach_RrbListUnbalanced()
@@ -260,7 +279,19 @@ public class Comparison
         return a;
     }
 
+[Benchmark(Description = "FSharpList.Cons (Unreversed)")]
+[BenchmarkCategory("Add")]
+public FSharpList<int> Add_FSharpList_Cons()
+{
+    var a = FSharpList<int>.Empty;
+    for (var i = 0; i < N; i++)
+    {
+        // Prepends to the head. List ends up reversed. O(1) per add.
+        a = FSharpList<int>.Cons(1, a);
+    }
 
+    return a;
+}
 
     [Benchmark(Description = "RrbBuilder.Add")]
     [BenchmarkCategory("Add")]
