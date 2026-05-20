@@ -1167,93 +1167,45 @@ internal static class RrbAlgorithm
         return GetRelaxedIndexAvx(node, index, shift);
     }
 
-
-    // The relaxed continuation of above
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static unsafe (int childIndex, int relativeIndex) GetRelaxedIndexAvx<T>(InternalNode<T> node, int index,
-        int shift)
+    internal static (int childIndex, int relativeIndex) GetRelaxedIndexAvx<T>(InternalNode<T> node, int index, int shift)
     {
         int len = node.Len;
-        var i = 0;
+        int i = 0;
+        int[] table = node.SizeTable!;
 
-        // I could see no benefit of this
-        // if (Avx512F.IsSupported && len >= 16)
-        // {
-        //     var vIndex = Vector512.Create(index);
-        //
-        //     fixed (int* tablePtr = node.SizeTable)
-        //     {
-        //         // Stride is 16 integers (64 bytes)
-        //         for (; i <= len - 16; i += 16)
-        //         {
-        //             var vTable = Avx512F.LoadVector512(tablePtr + i);
-        //
-        //             // 1. Compare (Returns Vector512<int>)
-        //             var vResult = Vector512.GreaterThan(vTable, vIndex);
-        //
-        //             // 2. Extract Mask (The missing step!)
-        //             // This grabs the high bit of every integer and packs them into a uint.
-        //             // Since we have 16 ints, we get 16 bits.
-        //             uint mask = (uint)Vector512.ExtractMostSignificantBits(vResult);
-        //
-        //             if (mask != 0)
-        //             {
-        //                 // Find first set bit (first child that is larger than index)
-        //                 int offset = BitOperations.TrailingZeroCount(mask);
-        //                 int matchIndex = i + offset;
-        //         
-        //                 int prevCount = matchIndex > 0 ? tablePtr[matchIndex - 1] : 0;
-        //
-        //                 return (matchIndex, index - prevCount);
-        //             }
-        //         }
-        //     }
-        // }
-
-        // Use AVX2 if supported and profitable (at least one vector worth of data)
-        // This is at no cost to the old kind of indexing.
-        if (Avx2.IsSupported && len >= 8)
+        if (Vector256.IsHardwareAccelerated && len >= 8)
         {
-            // Broadcast the target index to a vector of 8 ints
             var vIndex = Vector256.Create(index);
 
-            fixed (int* tablePtr = node.SizeTable)
+            // Process in chunks of 8 elements natively without pinning memory pointers
+            for (; i <= len - 8; i += 8)
             {
-                // Iterate in chunks of 8. 
-                // Since RRB_BRANCHING is 32, this runs max 4 times (0, 8, 16, 24).
-                for (; i <= len - 8; i += 8)
+                var vTable = Vector256.LoadUnsafe(ref table[i]);
+
+                // Performs comparison directly within integer hardware pipelines
+                var vResult = Vector256.GreaterThan(vTable, vIndex);
+
+                // Directly extracts the sign bits of each element without floating-point penalty
+                uint mask = Vector256.ExtractMostSignificantBits(vResult);
+
+                if (mask != 0)
                 {
-                    var vTable = Avx.LoadVector256(tablePtr + i);
+                    // Find first set bit (first child that is larger than index)
+                    int offset = BitOperations.TrailingZeroCount(mask);
+                    int matchIndex = i + offset;
+                    int prevCount = matchIndex > 0 ? table[matchIndex - 1] : 0;
 
-                    // Compare: SizeTable[k] > index
-                    // Result is -1 (all 1s) for true, 0 for false.
-                    var vResult = Avx2.CompareGreaterThan(vTable, vIndex);
-
-                    // Extract sign bits to a generic integer mask (8 bits, one per element)
-                    var mask = Avx.MoveMask(vResult.AsSingle());
-
-                    if (mask != 0)
-                    {
-                        // Found a match in this chunk.
-                        // The first set bit corresponds to the first element > index.
-                        var offset = BitOperations.TrailingZeroCount(mask);
-                        var matchIndex = i + offset;
-
-                        var prevCount = matchIndex > 0 ? tablePtr[matchIndex - 1] : 0;
-                        return (matchIndex, index - prevCount);
-                    }
+                    return (matchIndex, index - prevCount);
                 }
             }
         }
-
-        // Handles remaining elements (if len % 8 != 0) or systems without AVX2.
-        // Also handles the case where the index is beyond the total size (i hits len).
-        var table = node.SizeTable!;
         while (i < len && table[i] <= index) i++;
 
         var prev = i > 0 ? table[i - 1] : 0;
         return (i, index - prev);
     }
+    
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static InternalNode<T> AsInternal<T>(Node<T> node)

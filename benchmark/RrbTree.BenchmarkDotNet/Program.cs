@@ -2,7 +2,7 @@
 using BenchmarkDotNet.Running;
 using Collections;
 
-[MemoryDiagnoser] // CRITICAL: This tracks GC Allocations per operation
+[MemoryDiagnoser] 
 public class RrbBenchmarks
 {
     private const int N = 10000;
