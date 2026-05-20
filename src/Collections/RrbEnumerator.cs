@@ -3,6 +3,13 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
+[InlineArray(8)]
+internal struct EnumeratorPathBuffer<T> { private Node<T>? _element0; }
+
+[InlineArray(8)]
+internal struct EnumeratorIndexBuffer { private int _element0; }
+
+
 public struct RrbEnumerator<T> : IEnumerator<T> where T : notnull
 {
     private readonly RrbList<T> _list;
@@ -16,8 +23,8 @@ public struct RrbEnumerator<T> : IEnumerator<T> where T : notnull
     // --------------------------------------------
 
     private readonly int _startIndex;
-    private readonly Node<T>?[] _path;
-    private readonly int[] _pathIndexes;
+    private EnumeratorPathBuffer<T> _path;
+    private EnumeratorIndexBuffer _pathIndexes;
     private int _depth;
 
     // Default constructor (Full list)
@@ -48,9 +55,6 @@ public struct RrbEnumerator<T> : IEnumerator<T> where T : notnull
         _currentItems = null;
         _leafIndex = -1;
         _leafLen = 0;
-
-        _path = new Node<T>?[Constants.RRB_MAX_HEIGHT + 1];
-        _pathIndexes = new int[Constants.RRB_MAX_HEIGHT + 1];
         _depth = 0;
     }
 
@@ -191,24 +195,18 @@ public struct RrbEnumerator<T> : IEnumerator<T> where T : notnull
         throw new InvalidOperationException("Iterator state corrupt.");
     }
 
-    // Use the helper!
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (int, int) GetChildIndex(InternalNode<T> node, int index, int shift)
+    private static (int childIndex, int relativeIndex) GetChildIndex(InternalNode<T> node, int index, int shift)
     {
-        // Copy the robust helper logic from RrbAlgorithm here to keep the struct self-contained
-        if (node.SizeTable != null)
+        if (node.IsRelaxed())
         {
-            var childIndex = 0;
-            while (childIndex < node.Len && node.SizeTable[childIndex] <= index) childIndex++;
-            var prevCount = childIndex > 0 ? node.SizeTable[childIndex - 1] : 0;
-            return (childIndex, index - prevCount);
+            // Route relaxed nodes straight to your AVX engine
+            return RrbAlgorithm.GetRelaxedIndexAvx(node, index, shift);
         }
-        else
-        {
-            var childIndex = (index >> shift) & Constants.RRB_MASK;
-            var childStart = childIndex << shift;
-            return (childIndex, index - childStart);
-        }
+    
+        int childIndex = (index >> shift) & Constants.RRB_MASK;
+        int childStart = childIndex << shift;
+        return (childIndex, index - childStart);
     }
 
     // Duck typing for foreach
