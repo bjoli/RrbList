@@ -15,7 +15,7 @@ public static class RrbFun
     public static RrbList<T> Create<T>(IEnumerable<T> items) => RrbList<T>.Create(items);
 
     // --- Element access ---
-    public static T Get<T>(RrbList<T> list, int index) => list[index];
+    public static T Get<T>(RrbList<T> list, int index) where T : notnull => list[index];
 
     public static RrbList<T> SetItem<T>(RrbList<T> list, int index, T value) => list.SetItem(index, value);
 
@@ -24,7 +24,7 @@ public static class RrbFun
 
     public static RrbList<T> Insert<T>(RrbList<T> list, int index, T item) => list.Insert(index, item);
 
-    public static RrbList<T> RemoveAt<T>(RrbList<T> list, int index) => list.RemoveAt(index);
+    public static RrbList<T> RemoveAt<T>(RrbList<T> list, int index) where T : notnull => list.RemoveAt(index);
 
     public static RrbList<T> Pop<T>(RrbList<T> list) => list.Pop();
 
@@ -48,26 +48,26 @@ public static class RrbFun
 
     public static T? Find<T>(RrbList<T> list, Func<T, bool> predicate) => list.Find(predicate);
 
-    public static void ForEach<T>(RrbList<T> list, Action<T> action, int index = 0, int count = -1) =>
+    public static void ForEach<T>(RrbList<T> list, Action<T> action, int index = 0, int count = -1) where T : notnull =>
         list.ForEach(action, index, count);
 
-    public static bool Iter<T>(RrbList<T> list, Func<T, bool> action) => list.Iter(action);
+    public static bool Iter<T>(RrbList<T> list, Func<T, bool> action) where T : notnull => list.Iter(action);
 
     // --- Copying / Counting / Searching ---
     public static int Count<T>(RrbList<T> list) => list.Count;
 
-    public static bool Contains<T>(RrbList<T> list, T item) => list.Contains(item);
+    public static bool Contains<T>(RrbList<T> list, T item) where T : notnull => list.Contains(item);
 
-    public static void CopyTo<T>(RrbList<T> list, T[] array, int arrayIndex) => list.CopyTo(array, arrayIndex);
+    public static void CopyTo<T>(RrbList<T> list, T[] array, int arrayIndex) where T : notnull => list.CopyTo(array, arrayIndex);
 
-    public static void CopyRange<T>(RrbList<T> list, int sourceIndex, T[] destination, int destinationIndex, int count) =>
+    public static void CopyRange<T>(RrbList<T> list, int sourceIndex, T[] destination, int destinationIndex, int count) where T : notnull =>
         list.CopyTo(sourceIndex, destination, destinationIndex, count);
 
     // --- Utility ---
-    public static RrbBuilder<T> ToBuilder<T>(RrbList<T> list, int leafCapacity = Constants.RRB_BRANCHING) =>
+    public static RrbBuilder<T> ToBuilder<T>(RrbList<T> list, int leafCapacity = Constants.RRB_BRANCHING) where T : notnull =>
         list.ToBuilder(leafCapacity);
 
-    public static RrbList<T> Compact<T>(RrbList<T> list) => list.Compact();
+    public static RrbList<T> Compact<T>(RrbList<T> list) where T : notnull => list.Compact();
 
     public static string ToString<T>(RrbList<T> list) => list.ToString();
 }
