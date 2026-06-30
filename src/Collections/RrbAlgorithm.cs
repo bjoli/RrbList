@@ -56,13 +56,190 @@ internal static class RrbAlgorithm
     // For example, if the plan is [32, 32, 5],ExecuteConcatPlan will 
     // create three nodes containing 32, 32, and 5 items respectively.
 
-    private static void CreateConcatPlan<T>(
-        ReadOnlySpan<Node<T>> allChildren,
-        Span<int> nodeCount,
-        out int topLen)
+    public static (Node<T> Node, int Size) Concat<T>(Node<T> leftNode, int leftSize, Node<T> rightNode, int rightSize, int leftShift, int rightShift, out int newShift)
+    {
+        if (leftShift > rightShift)
+        {
+            var left = AsInternal(leftNode);
+            var lastChild = left.Children[left.Len - 1]!;
+            var lastChildSize = GetChildKnownSize(left, left.Len - 1, leftSize, leftShift);
+            
+            var (mergedMid, mergedSize) = Concat(lastChild, lastChildSize, rightNode, rightSize, leftShift - Constants.RRB_BITS, rightShift, out var subShift);
+            return Rebalance(left, leftSize - lastChildSize, mergedMid, mergedSize, null, 0, leftShift, subShift, out newShift);
+        }
+
+        if (leftShift < rightShift)
+        {
+            var right = AsInternal(rightNode);
+            var firstChild = right.Children[0]!;
+            var firstChildSize = GetChildKnownSize(right, 0, rightSize, rightShift);
+
+            var (mergedMid, mergedSize) = Concat(leftNode, leftSize, firstChild, firstChildSize, leftShift, rightShift - Constants.RRB_BITS, out var subShift);
+            return Rebalance(null, 0, mergedMid, mergedSize, right, rightSize - firstChildSize, rightShift, subShift, out newShift);
+        }
+
+        if (leftNode.Len + rightNode.Len <= Constants.RRB_BRANCHING)
+        {
+            newShift = leftShift;
+            var newLen = leftNode.Len + rightNode.Len;
+            if (leftShift == 0)
+            {
+                var lLeaf = AsLeaf(leftNode);
+                var rLeaf = AsLeaf(rightNode);
+                var newItems = new T[newLen];
+                Array.Copy(lLeaf.Items, 0, newItems, 0, lLeaf.Len);
+                Array.Copy(rLeaf.Items, 0, newItems, lLeaf.Len, rLeaf.Len);
+                return (new LeafNode<T>(newItems, newLen, OwnerId.None), leftSize + rightSize);
+            }
+            
+            var lInt = AsInternal(leftNode);
+            var rInt = AsInternal(rightNode);
+            var newChildren = new Node<T>?[newLen];
+            Array.Copy(lInt.Children, 0, newChildren, 0, lInt.Len);
+            Array.Copy(rInt.Children, 0, newChildren, lInt.Len, rInt.Len);
+
+            int[]? newTable = null;
+            if (lInt.IsRelaxed() || rInt.IsRelaxed() || lInt.Len < Constants.RRB_BRANCHING) 
+            {
+                newTable = new int[newLen];
+                int sum = 0;
+                for (int i = 0; i < lInt.Len; i++) { sum += GetChildKnownSize(lInt, i, leftSize, leftShift); newTable[i] = sum; }
+                for (int i = 0; i < rInt.Len; i++) { sum += GetChildKnownSize(rInt, i, rightSize, rightShift); newTable[lInt.Len + i] = sum; }
+            }
+            return (new InternalNode<T>(newChildren, newTable, newLen, OwnerId.None), leftSize + rightSize);
+        }
+
+        if (leftShift == 0)
+        {
+            newShift = Constants.RRB_BITS;
+            var children = new Node<T>?[2] { leftNode, rightNode };
+            var sizes = new int[2] { leftSize, leftSize + rightSize };
+            return (new InternalNode<T>(children, sizes, 2, OwnerId.None), leftSize + rightSize);
+        }
+
+        var leftI = AsInternal(leftNode);
+        var rightI = AsInternal(rightNode);
+        var midLeft = leftI.Children[leftI.Len - 1]!;
+        var midLeftSize = GetChildKnownSize(leftI, leftI.Len - 1, leftSize, leftShift);
+        var midRight = rightI.Children[0]!;
+        var midRightSize = GetChildKnownSize(rightI, 0, rightSize, rightShift);
+
+        var (mergedMid2, mergedSize2) = Concat(midLeft, midLeftSize, midRight, midRightSize, leftShift - Constants.RRB_BITS, rightShift - Constants.RRB_BITS, out var subShift2);
+        return Rebalance(leftI, leftSize - midLeftSize, mergedMid2, mergedSize2, rightI, rightSize - midRightSize, leftShift, subShift2, out newShift);
+    }
+
+    private static (Node<T> Node, int Size) Rebalance<T>(
+        InternalNode<T>? left, int leftBaseSize,
+        Node<T> center, int centerSize,
+        InternalNode<T>? right, int rightBaseSize,
+        int shift, int centerShift, out int newShift)
+    {
+        int totalSize = leftBaseSize + centerSize + rightBaseSize;
+        int childCount = (left != null ? left.Len - 1 : 0) + (centerShift == shift ? AsInternal(center).Len : 1) + (right != null ? right.Len - 1 : 0);
+
+        if (childCount <= Constants.RRB_BRANCHING)
+        {
+            var newChildren = new Node<T>?[childCount];
+            var newSizes = new int[childCount];
+            int idx = 0, cumulative = 0;
+
+            if (left != null)
+            {
+                for (int i = 0; i < left.Len - 1; i++)
+                {
+                    newChildren[idx] = left.Children[i];
+                    cumulative += GetChildKnownSize(left, i, leftBaseSize + GetChildKnownSize(left, left.Len - 1, int.MaxValue, shift), shift);
+                    newSizes[idx++] = cumulative;
+                }
+            }
+            if (centerShift == shift)
+            {
+                var cInt = AsInternal(center);
+                for (int i = 0; i < cInt.Len; i++)
+                {
+                    newChildren[idx] = cInt.Children[i];
+                    cumulative += GetChildKnownSize(cInt, i, centerSize, shift);
+                    newSizes[idx++] = cumulative;
+                }
+            }
+            else
+            {
+                newChildren[idx] = center;
+                cumulative += centerSize;
+                newSizes[idx++] = cumulative;
+            }
+            if (right != null)
+            {
+                for (int i = 1; i < right.Len; i++)
+                {
+                    newChildren[idx] = right.Children[i];
+                    cumulative += GetChildKnownSize(right, i, rightBaseSize + GetChildKnownSize(right, 0, int.MaxValue, shift), shift);
+                    newSizes[idx++] = cumulative;
+                }
+            }
+
+            newShift = shift;
+            return (new InternalNode<T>(newChildren, newSizes, childCount, OwnerId.None), totalSize);
+        }
+
+        // Fallback to redistribution
+        var allChildren = new Node<T>[childCount];
+        var allSizes = new int[childCount];
+        int count = 0;
+
+        if (left != null)
+        {
+            for (var i = 0; i < left.Len - 1; i++)
+            {
+                allChildren[count] = left.Children[i]!;
+                allSizes[count++] = GetChildKnownSize(left, i, leftBaseSize + GetChildKnownSize(left, left.Len - 1, int.MaxValue, shift), shift);
+            }
+        }
+        if (centerShift == shift)
+        {
+            var cInternal = AsInternal(center);
+            for (var i = 0; i < cInternal.Len; i++)
+            {
+                allChildren[count] = cInternal.Children[i]!;
+                allSizes[count++] = GetChildKnownSize(cInternal, i, centerSize, shift);
+            }
+        }
+        else
+        {
+            allChildren[count] = center;
+            allSizes[count++] = centerSize;
+        }
+        if (right != null)
+        {
+            for (var i = 1; i < right.Len; i++)
+            {
+                allChildren[count] = right.Children[i]!;
+                allSizes[count++] = GetChildKnownSize(right, i, rightBaseSize + GetChildKnownSize(right, 0, int.MaxValue, shift), shift);
+            }
+        }
+
+        Span<int> plan = stackalloc int[count];
+        CreateConcatPlan(new ReadOnlySpan<Node<T>>(allChildren, 0, count), plan, out var topLen);
+
+        var newAll = ExecuteConcatPlan(new ReadOnlySpan<Node<T>>(allChildren, 0, count), new ReadOnlySpan<int>(allSizes, 0, count), plan, topLen, shift);
+
+        if (topLen <= Constants.RRB_BRANCHING)
+        {
+            newShift = shift;
+            return (newAll, totalSize);
+        }
+
+        var newLeft = CopyInternalAndSetSizes(newAll, 0, Constants.RRB_BRANCHING);
+        var newRight = CopyInternalAndSetSizes(newAll, Constants.RRB_BRANCHING, topLen - Constants.RRB_BRANCHING);
+
+        newShift = shift + Constants.RRB_BITS;
+        var parent = new InternalNode<T>(new Node<T>?[2] { newLeft.Node, newRight.Node }, new int[2] { newLeft.Size, totalSize }, 2, OwnerId.None);
+        return (parent, totalSize);
+    }
+
+    private static void CreateConcatPlan<T>(ReadOnlySpan<Node<T>> allChildren, Span<int> nodeCount, out int topLen)
     {
         long totalNodes = 0;
-
         for (var i = 0; i < allChildren.Length; i++)
         {
             var len = allChildren[i].Len;
@@ -77,7 +254,6 @@ internal static class RrbAlgorithm
         while (optimalSlots + Constants.RRB_EXTRAS < shuffledLen)
         {
             while (iIdx < shuffledLen && nodeCount[iIdx] > Constants.RRB_BRANCHING - Constants.RRB_INVARIANT) iIdx++;
-
             if (iIdx == shuffledLen) break;
 
             var remainingNodes = nodeCount[iIdx];
@@ -91,303 +267,115 @@ internal static class RrbAlgorithm
             } while (remainingNodes > 0);
 
             for (var j = iIdx; j < shuffledLen - 1; j++) nodeCount[j] = nodeCount[j + 1];
-
             shuffledLen--;
             iIdx--;
         }
-
         topLen = shuffledLen;
     }
-    
-    
-    private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, Span<int> plan, int slen, int shift)
+private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, ReadOnlySpan<int> sizes, Span<int> plan, int slen, int shift)
     {
         var newChildren = new Node<T>?[slen];
+        var newSizes = new int[slen];
         var idx = 0;
         var offset = 0;
+        int runningTotalSize = 0;
 
         var shufflingLeaves = shift == Constants.RRB_BITS;
 
         for (var i = 0; i < slen; i++)
         {
             var newSize = plan[i];
-
             if (offset == 0 && idx < all.Length && all[idx].Len == newSize)
             {
-                newChildren[i] = all[idx]; // <--- Zero allocation, O(1)
+                newChildren[i] = all[idx];
+                runningTotalSize += sizes[idx];
+                newSizes[i] = runningTotalSize;
                 idx++;
                 continue;
             }
 
+            int nodeAccumulatedSize = 0;
             if (shufflingLeaves)
             {
                 var newItems = new T[newSize];
                 var curSize = 0;
-
                 while (curSize < newSize)
                 {
                     var srcLeaf = AsLeaf(all[idx]);
                     var available = srcLeaf.Len - offset;
                     var toCopy = Math.Min(available, newSize - curSize);
-
                     Array.Copy(srcLeaf.Items, offset, newItems, curSize, toCopy);
-
                     curSize += toCopy;
                     offset += toCopy;
-                    if (offset == srcLeaf.Len)
-                    {
-                        idx++;
-                        offset = 0;
-                    }
+                    nodeAccumulatedSize += toCopy; // This is fine because toCopy is a flat count, not cumulative.
+                    if (offset == srcLeaf.Len) { idx++; offset = 0; }
                 }
-
                 newChildren[i] = new LeafNode<T>(newItems, newSize, OwnerId.None);
             }
             else
             {
                 var newSubChildren = new Node<T>?[newSize];
+                var newSubSizes = new int[newSize];
                 var curSize = 0;
-
+                int subTotal = 0; // Cumulative for the new node
                 while (curSize < newSize)
                 {
-                    // If 'all[idx]' is a LeafNode here, something is wrong with the shift logic
-                    // or we are dealing with the "center split" logic incorrectly.
-                    // Assuming all[idx] is InternalNode
-                    var srcInternal = (InternalNode<T>)all[idx];
+                    var srcInternal = AsInternal(all[idx]);
                     var available = srcInternal.Len - offset;
                     var toCopy = Math.Min(available, newSize - curSize);
+                    
+                    for(int c = 0; c < toCopy; c++) {
+                        int childIdx = offset + c;
+                        int childSz = GetChildKnownSize(srcInternal, childIdx, sizes[idx], shift - Constants.RRB_BITS);
+                        subTotal += childSz;
+                        newSubSizes[curSize + c] = subTotal;
+                    }
 
                     Array.Copy(srcInternal.Children, offset, newSubChildren, curSize, toCopy);
-
                     curSize += toCopy;
                     offset += toCopy;
-                    if (offset == srcInternal.Len)
-                    {
-                        idx++;
-                        offset = 0;
-                    }
+                    
+                    // REMOVED: nodeAccumulatedSize += subTotal;
+                    
+                    if (offset == srcInternal.Len) { idx++; offset = 0; }
                 }
-
-                var newNode = new InternalNode<T>(newSubChildren, null, newSize, OwnerId.None);
-                newChildren[i] = SetSizes(newNode, shift - Constants.RRB_BITS);
+                newChildren[i] = new InternalNode<T>(newSubChildren, newSubSizes, newSize, OwnerId.None);
+                
+                // ADDED: The total size of this newly constructed node is exactly subTotal.
+                nodeAccumulatedSize = subTotal;
             }
+            
+            runningTotalSize += nodeAccumulatedSize;
+            newSizes[i] = runningTotalSize;
         }
-
-        return new InternalNode<T>(newChildren, null, slen, OwnerId.None);
-    }
-    
-    /// <summary>
-    /// A pure rebalance method that gives back a tree that is a lot cleaner than the quick rebalance below.
-    /// </summary>
-    /// <returns>A new root node</returns>
-    private static Node<T> PureRebalance<T>(
-        InternalNode<T>? left,
-        Node<T> center,
-        InternalNode<T>? right,
-        int shift,
-        int centerShift,
-        out int newShift)
-    {
-        // 1. Collect all children into a stack buffer or pooled array to avoid allocs
-        // (Note: Constants.RRB_BRANCHING * 2 + 1 is small enough for stackalloc if T were unmanaged, 
-        // but Node<T> is a ref type. stick to array for now, or use a ThreadStatic buffer).
-        var allChildren = new Node<T>[Constants.RRB_BRANCHING * 2 + 1];
-        var count = 0;
-
-        // ... [Collection logic stays same] ...
-        if (left != null)
-            for (var i = 0; i < left.Len - 1; i++)
-                allChildren[count++] = left.Children[i]!;
-
-        if (centerShift == shift)
-        {
-            var cInternal = (InternalNode<T>)center;
-            for (var i = 0; i < cInternal.Len; i++) allChildren[count++] = cInternal.Children[i]!;
-        }
-        else
-        {
-            allChildren[count++] = center;
-        }
-
-        if (right != null)
-            for (var i = 1; i < right.Len; i++)
-                allChildren[count++] = right.Children[i]!;
-
-        var childrenSlice = new ReadOnlySpan<Node<T>>(allChildren, 0, count);
-
-        // Check if we fit in one node BEFORE planning
-        if (count <= Constants.RRB_BRANCHING)
-        {
-            // Just glue them. No "Planning" needed.
-            // This happens frequently when 'center' was merged and didn't grow much.
-            // We must calculate sizes if ANY input was relaxed or if we created a gap.
-            // But ExecuteConcatPlan does that for us. 
-            // We can skip CreateConcatPlan.
-
-
-            var newChildren = new Node<T>?[count];
-            // Span copy to array
-            for (var i = 0; i < count; i++) newChildren[i] = allChildren[i];
-
-            var newNode = new InternalNode<T>(newChildren, null, count, OwnerId.None);
-            var result = SetSizes(newNode, shift);
-            newShift = shift;
-            return result;
-        }
-
-        // ... [Rest of logic: CreateConcatPlan, ExecuteConcatPlan] ...
-        // (This remains the robust fallback for when nodes actually need redistributing)
-        Span<int> plan = stackalloc int[count];
-        CreateConcatPlan(childrenSlice, plan, out var topLen);
-
-        var newAll = ExecuteConcatPlan(childrenSlice, plan, topLen, shift);
-
-        if (topLen <= Constants.RRB_BRANCHING)
-        {
-            newShift = shift;
-            return SetSizes(newAll, shift);
-        }
-
-        var newLeft = CopyInternal(newAll, 0, Constants.RRB_BRANCHING);
-        var newRight = CopyInternal(newAll, Constants.RRB_BRANCHING, topLen - Constants.RRB_BRANCHING);
-
-        newLeft = SetSizes(newLeft, shift);
-        newRight = SetSizes(newRight, shift);
-
-        newShift = shift + Constants.RRB_BITS;
-        var parent = new InternalNode<T>(2, OwnerId.None);
-        parent.Children[0] = newLeft;
-        parent.Children[1] = newRight;
-        return SetSizes(parent, newShift);
+        return new InternalNode<T>(newChildren, newSizes, slen, OwnerId.None);
     }
 
-
-    public static Node<T> Concat<T>(Node<T> leftNode, Node<T> rightNode, int leftShift, int rightShift,
-        out int newShift, bool dirty = true)
+    private static (InternalNode<T> Node, int Size) CopyInternalAndSetSizes<T>(InternalNode<T> orig, int start, int len)
     {
-        // Height Diff Handling (Same as before)
-        if (leftShift > rightShift)
-        {
-            var left = AsInternal(leftNode);
-            var lastChild = left.Children[left.Len - 1]!;
-            var mergedMid = Concat(lastChild, rightNode, leftShift - Constants.RRB_BITS, rightShift, out var subShift, dirty);
-            return dirty
-                ? Rebalance(left, mergedMid, null, leftShift, subShift, out newShift)
-                : PureRebalance(left, mergedMid, null, leftShift, subShift, out newShift);
-        }
-
-        if (leftShift < rightShift)
-        {
-            var right = AsInternal(rightNode);
-            var firstChild = right.Children[0]!;
-            var mergedMid = Concat(leftNode, firstChild, leftShift, rightShift - Constants.RRB_BITS, out var subShift,dirty);
-            return dirty
-                ? Rebalance(null, mergedMid, right, rightShift, subShift, out newShift)
-                : PureRebalance(null, mergedMid, right, rightShift, subShift, out newShift);
-        }
-
-        // Same Height: Attempt Fast Concatenation
-        // If we can just glue them together without violating branching factor
-        if (leftNode.Len + rightNode.Len <= Constants.RRB_BRANCHING)
-        {
-            // Fix this
-        }
-
-        // Full Rebalance (The expensive "Plan" approach)
-        if (leftShift == 0)
-        {
-            // Leaf Level Merge
-
-            newShift = Constants.RRB_BITS;
-            // Create parent with 2 children
-            return CreateNewParent(leftNode, rightNode, OwnerId.None);
-        }
-
-        {
-            // Internal Level Merge
-            var left = AsInternal(leftNode);
-            var right = AsInternal(rightNode);
-            var midLeft = left.Children[left.Len - 1]!;
-            var midRight = right.Children[0]!;
-
-            var mergedMid = Concat(midLeft, midRight, leftShift - Constants.RRB_BITS, rightShift - Constants.RRB_BITS,
-                out var subShift,dirty);
-            return dirty ? Rebalance(left, mergedMid, right, leftShift, subShift, out newShift) : PureRebalance(left, mergedMid, right, leftShift, subShift, out newShift);
-        }
-    }
-
-
-//     This is a _much_ faster rebalance that skips the whole concat plan. 
-//     the resulting tree is less balanced, but merging takes about half as long.
-    private static Node<T> Rebalance<T>(
-    InternalNode<T>? left,
-    Node<T> center,
-    InternalNode<T>? right,
-    int shift,
-    int centerShift,
-    out int newShift)
-{
-    // Collect all children into a buffer
-    var allChildren = new Node<T>[Constants.RRB_BRANCHING * 2 + 1];
-    var count = 0;
-
-    if (left != null)
-        for (var i = 0; i < left.Len - 1; i++) allChildren[count++] = left.Children[i]!;
-
-    if (centerShift == shift)
-    {
-        var cInternal = AsInternal(center);
-        for (var i = 0; i < cInternal.Len; i++) allChildren[count++] = cInternal.Children[i]!;
-    }
-    else
-    {
-        allChildren[count++] = center;
-    }
-
-    if (right != null)
-        for (var i = 1; i < right.Len; i++) allChildren[count++] = right.Children[i]!;
-
-
-    // Everything fits in one node (<= 32 children)
-    if (count <= Constants.RRB_BRANCHING)
-    {
-        var newChildren = new Node<T>?[count];
-        Array.Copy(allChildren, newChildren, count);
+        var newArr = new Node<T>?[len];
+        var newSizes = new int[len];
+        int baseSub = start > 0 ? orig.SizeTable![start - 1] : 0;
         
-        // We must calculate sizes because we just glued arbitrary nodes together.
-        // But SetSizes only scans the 'count' children, it doesn't rebuild them.
-        var newNode = new InternalNode<T>(newChildren, null, count, OwnerId.None);
-        newShift = shift;
-        return SetSizes(newNode, shift);
+        Array.Copy(orig.Children, start, newArr, 0, len);
+        for (int i = 0; i < len; i++)
+        {
+            newSizes[i] = orig.SizeTable![start + i] - baseSub;
+        }
+        return (new InternalNode<T>(newArr, newSizes, len, OwnerId.None), newSizes[len - 1]);
     }
-
-    // Too big, split into two nodes.
-    // Do not redistribute. Just cut in the middle.
-    // This leaves the Left node fully packed (32) and the Right node with the remainder.
-    // This preserves the "Dense Invariant" for the Left node!
     
-    var leftLen = Constants.RRB_BRANCHING;
-    var rightLen = count - Constants.RRB_BRANCHING;
-
-    var leftChildren = new Node<T>?[leftLen];
-    var rightChildren = new Node<T>?[rightLen];
-
-    Array.Copy(allChildren, 0, leftChildren, 0, leftLen);
-    Array.Copy(allChildren, leftLen, rightChildren, 0, rightLen);
-
-    // Create the two new children
-    var newLeft = SetSizes(new InternalNode<T>(leftChildren, null, leftLen, OwnerId.None), shift);
-    var newRight = SetSizes(new InternalNode<T>(rightChildren, null, rightLen, OwnerId.None), shift);
-
-    // Create the new parent
-    newShift = shift + Constants.RRB_BITS;
-    var parent = new InternalNode<T>(2, OwnerId.None);
-    parent.Children[0] = newLeft;
-    parent.Children[1] = newRight;
-    
-    // The parent is obviously relaxed/partial, so we set its sizes.
-    return SetSizes(parent, newShift);
-}
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int GetChildKnownSize<T>(InternalNode<T> node, int childIndex, int knownSize, int shift)
+    {
+        if (node.SizeTable != null)
+        {
+            int prev = childIndex > 0 ? node.SizeTable[childIndex - 1] : 0;
+            return node.SizeTable[childIndex] - prev;
+        }
+        if (childIndex < node.Len - 1) return 1 << shift;
+        return knownSize - (node.Len - 1) * (1 << shift);
+    }
 
   private static InternalNode<T> SetSizes<T>(InternalNode<T> node, int shift)
     {

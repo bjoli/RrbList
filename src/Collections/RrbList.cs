@@ -444,7 +444,7 @@ public sealed partial class RrbList<T>
         if (start == 0 && count < treeSize)
         {
             var takeRoot = RrbAlgorithm.SliceRightAndPromote(Root!, count, Shift,
-                out T[]? takeTail,
+                out T[] takeTail,
                 out int len);
             int tempShift = Shift;
             
@@ -587,7 +587,16 @@ public sealed partial class RrbList<T>
         // We can safely assume leftTree is not null here because:
         // if Count > 0 and TailLen > 0, leftTree is set by AppendLeafToTree.
         // if Count > 0 and TailLen == 0, Root must be non-null (otherwise Count would be 0).
-        var combinedTree = RrbAlgorithm.Concat(leftTree!, other.Root!, newLeftShift, other.Shift, out var combinedShift, !pure);
+        // The left tree size is exactly 'Count' because our tail was just pushed into it.
+        // The right tree size is 'other.Count' minus its tail, which remains unmerged.
+        var rightTreeSize = other.Count - other.TailLen;
+        
+        var (combinedTree, _) = RrbAlgorithm.Concat(
+            leftTree!, Count, 
+            other.Root!, rightTreeSize, 
+            newLeftShift, other.Shift, 
+            out var combinedShift
+        );
 
         // other.Tail is preserved as the new tail
         return new RrbList<T>(combinedTree, other.Tail, Count + other.Count, combinedShift, other.TailLen);
