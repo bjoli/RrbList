@@ -184,7 +184,7 @@ internal static class RrbAlgorithm
 
         // Fallback to redistribution
         var allChildren = new Node<T>[childCount];
-        var allSizes = new int[childCount];
+        Span<int> allSizes = stackalloc int[childCount];
         int count = 0;
 
         if (left != null)
@@ -221,7 +221,7 @@ internal static class RrbAlgorithm
         Span<int> plan = stackalloc int[count];
         CreateConcatPlan(new ReadOnlySpan<Node<T>>(allChildren, 0, count), plan, out var topLen);
 
-        var newAll = ExecuteConcatPlan(new ReadOnlySpan<Node<T>>(allChildren, 0, count), new ReadOnlySpan<int>(allSizes, 0, count), plan, topLen, shift);
+        var newAll = ExecuteConcatPlan(new ReadOnlySpan<Node<T>>(allChildren, 0, count), allSizes[..count], plan, topLen, shift);
 
         if (topLen <= Constants.RRB_BRANCHING)
         {
@@ -870,8 +870,175 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
 
     return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
 }
-   
 
+    /// <summary>
+    /// Single-pass tree split at <paramref name="splitIndex"/>.
+    /// Produces both halves in one root-to-leaf traversal:
+    ///   Left  = [0, splitIndex)  with rightmost leaf promoted as tail.
+    ///   Right = [splitIndex, nodeSize)
+    /// </summary>
+    internal static void SplitTree<T>(
+        Node<T> node, int splitIndex, int shift,
+        out Node<T>? leftRoot, out T[] leftTail, out int leftTailLen,
+        out Node<T>? rightRoot)
+    {
+        // --- Base Case: Leaf ---
+        if (shift == 0)
+        {
+            var leaf = AsLeaf(node);
+            var leftLen = splitIndex;
+            var rightLen = leaf.Len - splitIndex;
+
+            // Left: always partial (splitIndex < leaf.Len ≤ BRANCHING), promote as tail
+            var leftItems = new T[leftLen];
+            Array.Copy(leaf.Items, 0, leftItems, 0, leftLen);
+            leftRoot = null;
+            leftTail = leftItems;
+            leftTailLen = leftLen;
+
+            // Right: create leaf
+            var rightItems = new T[rightLen];
+            Array.Copy(leaf.Items, splitIndex, rightItems, 0, rightLen);
+            rightRoot = new LeafNode<T>(rightItems, rightLen, OwnerId.None);
+            return;
+        }
+
+        // --- Recursive Case: Internal Node ---
+        var internalNode = AsInternal(node);
+        var (childIdx, subIdx) = GetChildIndexAvx(internalNode, splitIndex, shift);
+
+        if (subIdx == 0)
+        {
+            // Clean boundary: no recursion needed.
+            // childIdx >= 1 (since splitIndex > 0).
+            SplitAtBoundary(internalNode, childIdx, shift, out leftRoot, out rightRoot);
+            leftTail = Array.Empty<T>();
+            leftTailLen = 0;
+            return;
+        }
+
+        // --- Split within a child: recurse once, build both halves ---
+        SplitTree(internalNode.Children[childIdx]!, subIdx, shift - Constants.RRB_BITS,
+            out var leftChild, out leftTail, out leftTailLen, out var rightChild);
+
+        // ── BUILD LEFT ──
+        // children[0..childIdx-1] + leftChild (if not fully promoted)
+        // Follows the SliceRightAndPromote density/size-table pattern.
+        var leftNodeLen = leftChild == null ? childIdx : childIdx + 1;
+
+        if (leftNodeLen == 0)
+        {
+            leftRoot = null;
+            // leftTail / leftTailLen already set from recursion
+        }
+        else
+        {
+            var leftChildren = new Node<T>?[leftNodeLen];
+            if (childIdx > 0)
+                Array.Copy(internalNode.Children, 0, leftChildren, 0, childIdx);
+            if (leftChild != null)
+                leftChildren[childIdx] = leftChild;
+
+            // Size table: only if original was relaxed.
+            // Dense stays dense: children[0..childIdx-1] are all full (non-last in original),
+            // and leftChild is the last child (allowed to be partial).
+            int[]? leftSizeTable = null;
+            if (internalNode.SizeTable != null)
+            {
+                leftSizeTable = new int[leftNodeLen];
+                if (childIdx > 0)
+                    Array.Copy(internalNode.SizeTable, 0, leftSizeTable, 0, childIdx);
+                if (leftChild != null)
+                    leftSizeTable[leftNodeLen - 1] = splitIndex - leftTailLen;
+            }
+
+            leftRoot = new InternalNode<T>(leftChildren, leftSizeTable, leftNodeLen, OwnerId.None);
+        }
+
+        // ── BUILD RIGHT ──
+        // rightChild + children[childIdx+1..end]
+        // First child (rightChild) is partial → always needs a size table.
+        var rightNodeLen = internalNode.Len - childIdx; // 1 + siblings after childIdx
+        var rightChildren = new Node<T>?[rightNodeLen];
+        rightChildren[0] = rightChild;
+        if (rightNodeLen > 1)
+            Array.Copy(internalNode.Children, childIdx + 1, rightChildren, 1, rightNodeLen - 1);
+
+        int[] rightSizeTable;
+        if (internalNode.SizeTable != null)
+        {
+            // Relaxed: adjust cumulative sizes by subtracting splitIndex.
+            rightSizeTable = new int[rightNodeLen];
+            for (var i = 0; i < rightNodeLen; i++)
+                rightSizeTable[i] = internalNode.SizeTable[childIdx + i] - splitIndex;
+        }
+        else
+        {
+            // Dense original: compute from scratch (same logic as SliceLeftRec).
+            rightSizeTable = new int[rightNodeLen];
+            var childCapacity = 1 << shift;
+            for (var i = 0; i < rightNodeLen; i++)
+            {
+                long oldCumulative;
+                if (childIdx + i == internalNode.Len - 1)
+                {
+                    var fullChildrenSize = (long)(internalNode.Len - 1) * childCapacity;
+                    var lastChildSize = CountTree(internalNode.Children[internalNode.Len - 1]!,
+                        shift - Constants.RRB_BITS);
+                    oldCumulative = fullChildrenSize + lastChildSize;
+                }
+                else
+                {
+                    oldCumulative = (long)(childIdx + i + 1) * childCapacity;
+                }
+
+                rightSizeTable[i] = (int)(oldCumulative - splitIndex);
+            }
+        }
+
+        rightRoot = new InternalNode<T>(rightChildren, rightSizeTable, rightNodeLen, OwnerId.None);
+    }
+
+    /// <summary>
+    /// Handles the clean-boundary case of SplitTree where splitIndex falls
+    /// exactly at a child boundary (subIdx == 0).
+    /// Left  = children[0..childIdx-1]   (dense stays dense, all full nodes)
+    /// Right = children[childIdx..end]    (dense stays dense)
+    /// </summary>
+    private static void SplitAtBoundary<T>(
+        InternalNode<T> node, int childIdx, int shift,
+        out Node<T>? leftRoot, out Node<T>? rightRoot)
+    {
+        // ── LEFT: children[0..childIdx-1] ──
+        var leftLen = childIdx;
+        var leftChildren = new Node<T>?[leftLen];
+        Array.Copy(node.Children, 0, leftChildren, 0, leftLen);
+
+        int[]? leftSizeTable = null;
+        if (node.SizeTable != null)
+        {
+            leftSizeTable = new int[leftLen];
+            Array.Copy(node.SizeTable, 0, leftSizeTable, 0, leftLen);
+        }
+
+        leftRoot = new InternalNode<T>(leftChildren, leftSizeTable, leftLen, OwnerId.None);
+
+        // ── RIGHT: children[childIdx..end] ──
+        var rightLen = node.Len - childIdx;
+        var rightChildren = new Node<T>?[rightLen];
+        Array.Copy(node.Children, childIdx, rightChildren, 0, rightLen);
+
+        int[]? rightSizeTable = null;
+        if (node.SizeTable != null)
+        {
+            rightSizeTable = new int[rightLen];
+            var offset = node.SizeTable[childIdx - 1];
+            for (var i = 0; i < rightLen; i++)
+                rightSizeTable[i] = node.SizeTable[childIdx + i] - offset;
+        }
+
+        rightRoot = new InternalNode<T>(rightChildren, rightSizeTable, rightLen, OwnerId.None);
+    }
 
 // Returns the updated node if the tail could be inserted/merged.
 // Returns NULL if the node is physically full and the tail could not be accepted.

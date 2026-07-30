@@ -617,16 +617,60 @@ public sealed partial class RrbList<T>
         if (index == 0) return (Empty, this);
         if (index == Count) return (this, Empty);
 
-        // Implementation in terms of Slice
-        // This is safe because Slice handles:
-        // 1. Tail Promotion (Left list gets a valid tail)
-        // 2. Tail Extraction (Right list pulls from the old tail if needed)
-        // 3. Density Preservation (Fast)
+        var treeSize = Count - TailLen;
 
-        var left = Slice(0, index);
-        var right = Slice(index, Count - index);
+        // --- Case 1: Split is in the tail ---
+        if (index >= treeSize)
+        {
+            var tailSplitIdx = index - treeSize;
 
-        return (left, right);
+            if (tailSplitIdx == 0)
+            {
+                // Left gets entire tree (empty tail — all nodes in a dense tree are full).
+                // Right gets the original tail.
+                return (
+                    new RrbList<T>(Root, Array.Empty<T>(), treeSize, Shift, 0),
+                    new RrbList<T>(null, Tail, TailLen, 0, TailLen));
+            }
+
+            // Split within the tail — pure array work, no tree traversal.
+            var leftTailItems = new T[tailSplitIdx];
+            Array.Copy(Tail, 0, leftTailItems, 0, tailSplitIdx);
+
+            var rightTailLen = TailLen - tailSplitIdx;
+            var rightTailItems = new T[rightTailLen];
+            Array.Copy(Tail, tailSplitIdx, rightTailItems, 0, rightTailLen);
+
+            return (
+                new RrbList<T>(Root, leftTailItems, index, Shift, tailSplitIdx),
+                new RrbList<T>(null, rightTailItems, Count - index, 0, rightTailLen));
+        }
+
+        // --- Case 2: Split is in the tree — single-pass algorithm ---
+        RrbAlgorithm.SplitTree(Root!, index, Shift,
+            out var leftRoot, out var leftTail, out var leftTailLen,
+            out var rightRoot);
+
+        var leftShift = Shift;
+        var rightShift = Shift;
+
+        // Squash single-child roots.
+        while (leftRoot != null && !leftRoot.IsLeaf() && leftRoot.Len == 1 && leftShift > 0)
+        {
+            leftRoot = RrbAlgorithm.AsInternal(leftRoot).Children[0];
+            leftShift -= Constants.RRB_BITS;
+        }
+
+        while (rightRoot != null && !rightRoot.IsLeaf() && rightRoot.Len == 1 && rightShift > 0)
+        {
+            rightRoot = RrbAlgorithm.AsInternal(rightRoot).Children[0];
+            rightShift -= Constants.RRB_BITS;
+        }
+
+        // Right list reuses the original tail directly.
+        return (
+            new RrbList<T>(leftRoot, leftTail, index, leftShift, leftTailLen),
+            new RrbList<T>(rightRoot, Tail, Count - index, rightShift, TailLen));
     }
 
     /**
