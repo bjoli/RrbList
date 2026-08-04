@@ -3,10 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
-using System;
-using System.Buffers;
-using System.Runtime.CompilerServices;
-
+#pragma warning disable CS8981
 public static class misc
 {
     

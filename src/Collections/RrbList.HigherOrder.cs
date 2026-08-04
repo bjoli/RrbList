@@ -284,7 +284,7 @@ public sealed partial class RrbList<T>
      * <param name="mapper">A transform function to apply to each element.</param>
      * <returns>A new RrbList containing the mapped elements.</returns>
      */
-    public RrbList<TResult> Map<TResult>(Func<T, TResult> mapper)
+    public RrbList<TResult> Map<TResult>(Func<T, TResult> mapper) where TResult : notnull
     {
         if (mapper == null) throw new ArgumentNullException(nameof(mapper));
         if (Count == 0) return RrbList<TResult>.Empty;
@@ -313,7 +313,7 @@ public sealed partial class RrbList<T>
     // This function copies it's way down to the leaf nodes and then runs a copy of the 
     // leaf with mapper run on every element. This is by far the fastest way to run a function on each 
     // element of the RrbList.
-    private static Node<TResult> MapNode<TResult>(Node<T> node, int shift, Func<T, TResult> mapper)
+    private static Node<TResult> MapNode<TResult>(Node<T> node, int shift, Func<T, TResult> mapper) where TResult : notnull
     {
         // Base case: Map values in the leaf
         if (shift == 0)
