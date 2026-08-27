@@ -62,6 +62,56 @@ public class RrbBuilder<T> where T : notnull
         _totalLeaves = 0;
     }
 
+    /// <summary>
+    /// Creates a new RRB-List from an array directly by chunking it.
+    /// </summary>
+    /// <param name="items">The array of items.</param>
+    /// <param name="reuseArrayIfShorterThan32">If true and the array is small enough to fit in the tail, it will be used directly instead of copied.</param>
+    /// <returns>A new RRB-List.</returns>
+    public static RrbList<T> FromArray(T[] items, bool reuseArrayIfShorterThan32 = false)
+    {
+        if (items == null) throw new ArgumentNullException(nameof(items));
+        if (items.Length == 0) return RrbList<T>.Empty;
+
+        if (items.Length <= Constants.RRB_BRANCHING)
+        {
+            var tail = reuseArrayIfShorterThan32 ? items : (T[])items.Clone();
+            return new RrbList<T>(null, tail, items.Length, 0, items.Length);
+        }
+
+        var builder = new RrbBuilder<T>();
+        
+        int offset = 0;
+        int remaining = items.Length;
+        
+        while (remaining > Constants.RRB_BRANCHING)
+        {
+            var leafItems = new T[Constants.RRB_BRANCHING];
+            Array.Copy(items, offset, leafItems, 0, Constants.RRB_BRANCHING);
+            
+            var newLeaf = new LeafNode<T>(leafItems, Constants.RRB_BRANCHING, builder._token);
+            if (builder._chunkIndex == ChunkSize)
+            {
+                builder._chunks.Add(builder._currentChunk);
+                builder._currentChunk = new LeafNode<T>[ChunkSize];
+                builder._chunkIndex = 0;
+            }
+            builder._currentChunk[builder._chunkIndex++] = newLeaf;
+            builder._totalLeaves++;
+            
+            offset += Constants.RRB_BRANCHING;
+            remaining -= Constants.RRB_BRANCHING;
+        }
+        
+        if (remaining > 0)
+        {
+            Array.Copy(items, offset, builder._currentTail, 0, remaining);
+            builder._currentTailLen = remaining;
+        }
+
+        return builder.ToImmutable();
+    }
+
     public int Count => _rootCount + (_totalLeaves * Constants.RRB_BRANCHING) + _currentTailLen;
 
     public T this[int index]
