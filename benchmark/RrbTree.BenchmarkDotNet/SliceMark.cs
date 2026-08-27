@@ -1,6 +1,6 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Diagnosers;
-using Collections; // Assuming your namespace is Collections
+ // Assuming your namespace is Collections
 
 [MemoryDiagnoser]
 [ShortRunJob] // Remove this for final production-grade numbers
@@ -11,8 +11,8 @@ public class SliceMark
     [Params(10_000, 100_000, 1_000_000)]
     public int N;
 
-    private RrbList<int> _denseList;
-    private RrbList<int> _relaxedList;
+    private global::Collections.RrbList<int> _denseList;
+    private global::Collections.RrbList<int> _relaxedList;
 
     [GlobalSetup]
     public void Setup()
@@ -20,7 +20,7 @@ public class SliceMark
         // 1. Construct a Dense List
         // Since I don't have your Builder code, I assume repeated adding.
         // (In a real app, you'd use a transient builder for speed).
-        var list = RrbList<int>.Empty;
+        var list = global::Collections.RrbList<int>.Empty;
         for (int i = 0; i < N; i++)
         {
             list = list.Add(i);
@@ -38,7 +38,7 @@ public class SliceMark
     // This forces LCA calculation + Left Cut + Right Cut + Spine Reconstruction.
     
     [Benchmark(Description = "Dense: Slice Middle (25% -> 75%)")]
-    public RrbList<int> Dense_Slice_Middle()
+    public object Dense_Slice_Middle()
     {
         int start = N / 4;
         int count = N / 2;
@@ -46,7 +46,7 @@ public class SliceMark
     }
 
     [Benchmark(Description = "Relaxed: Slice Middle (25% -> 75%)")]
-    public RrbList<int> Relaxed_Slice_Middle()
+    public object Relaxed_Slice_Middle()
     {
         int start = N / 4;
         int count = N / 2;
@@ -58,7 +58,7 @@ public class SliceMark
     // Slicing a Dense list from the right should preserve density and avoid SizeTable allocations.
 
     [Benchmark(Description = "Dense: Take (0 -> 75%)")]
-    public RrbList<int> Dense_Take()
+    public object Dense_Take()
     {
         // Should be faster than Slice Middle because Left recursion is skipped
         // and SizeTables are not allocated.
@@ -66,7 +66,7 @@ public class SliceMark
     }
 
     [Benchmark(Description = "Relaxed: Take (0 -> 75%)")]
-    public RrbList<int> Relaxed_Take()
+    public object Relaxed_Take()
     {
         // Must allocate SizeTables because input is already relaxed.
         return _relaxedList.Slice(0, (int)(N * 0.75));
@@ -76,7 +76,7 @@ public class SliceMark
     // Tests Left recursion heavy path.
 
     [Benchmark(Description = "Dense: Skip (25% -> End)")]
-    public RrbList<int> Dense_Skip()
+    public object Dense_Skip()
     {
         int start = (int)(N * 0.25);
         return _denseList.Slice(start, N - start);

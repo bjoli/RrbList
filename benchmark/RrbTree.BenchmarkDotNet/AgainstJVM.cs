@@ -1,16 +1,16 @@
 using BenchmarkDotNet.Attributes;
-using Collections;
+
 // Replace with your actual library namespace
 
 [MemoryDiagnoser]
 [RankColumn]
 public class AgainstJvm
 {
-    private RrbList<int> _otherVector;
+    private global::Collections.RrbList<int> _otherVector;
     private int _randomIndex;
     private int _splitIndex;
 
-    private RrbList<int> _vector;
+    private global::Collections.RrbList<int> _vector;
 
     [Params(1_000_000)] public int Size;
 
@@ -19,8 +19,8 @@ public class AgainstJvm
     public void Setup()
     {
         // 0. Setup: Creating base vectors for other operations
-        _vector = new RrbList<int>(Enumerable.Range(0, Size));
-        _otherVector = new RrbList<int>(Enumerable.Range(0, Size));
+        _vector = new global::Collections.RrbList<int>(Enumerable.Range(0, Size));
+        _otherVector = new global::Collections.RrbList<int>(Enumerable.Range(0, Size));
 
         _splitIndex = Size / 2;
         _randomIndex = Size / 2;
@@ -35,9 +35,9 @@ public class AgainstJvm
 
     // 2. Building (Construction via Builder)
     [Benchmark]
-    public RrbList<int> Building()
+    public object Building()
     {
-        var b = new RrbBuilder<int>();
+        var b = new global::Collections.RrbBuilder<int>();
         for (var i = 0; i < Size; i++) b.Add(i);
         // Assuming ToImmutable() or similar exists to finalize the builder
         return b.ToImmutable();
@@ -45,14 +45,14 @@ public class AgainstJvm
 
     // 3. Slicing
     [Benchmark]
-    public RrbList<int> Slicing()
+    public object Slicing()
     {
         return _vector.Slice(1000, Size - 1000);
     }
 
     // 4. Splitting
     [Benchmark]
-    public (RrbList<int>, RrbList<int>) Splitting()
+    public (global::Collections.RrbList<int>, global::Collections.RrbList<int>) Splitting()
     {
         // Deconstructs the tuple returned by your split method
         var (left, right) = _vector.Split(_splitIndex);
@@ -61,28 +61,28 @@ public class AgainstJvm
 
     // 5. Merging (Concatenation)
     [Benchmark]
-    public RrbList<int> Merging()
+    public object Merging()
     {
         return _vector.Merge(_otherVector);
     }
 
     // 6. Inserting (at middle)
     [Benchmark]
-    public RrbList<int> Inserting()
+    public object Inserting()
     {
         return _vector.Insert(_randomIndex, 999);
     }
 
     // 7. Removing (at middle)
     [Benchmark]
-    public RrbList<int> Removing()
+    public object Removing()
     {
         return _vector.RemoveAt(_randomIndex);
     }
 
     // 8. Adding (Appending to end)
     [Benchmark]
-    public RrbList<int> Appending()
+    public object Appending()
     {
         return _vector.Add(999);
     }

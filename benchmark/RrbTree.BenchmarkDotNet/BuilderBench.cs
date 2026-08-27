@@ -1,5 +1,5 @@
 using BenchmarkDotNet.Attributes;
-using Collections;
+
 
 namespace Benchmarks;
 
@@ -11,10 +11,10 @@ public class BuilderBench
     public int N;
 
     [Benchmark]
-    public RrbList<int> BuildDenseList()
+    public object BuildDenseList()
     {
         // Standard builder usage
-        var builder = new RrbBuilder<int>();
+        var builder = new global::Collections.RrbBuilder<int>();
 
         for (int i = 0; i < N; i++)
         {

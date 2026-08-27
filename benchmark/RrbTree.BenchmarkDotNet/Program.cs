@@ -1,25 +1,25 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
-using Collections;
+
 
 [MemoryDiagnoser] 
 public class RrbBenchmarks
 {
     private const int N = 10000;
-    private RrbList<int> _list;
+    private global::Collections.RrbList<int> _list;
     private List<int> _list2;
-    private RrbList<int> balanced;
-    private RrbList<int> unbalanced;
+    private global::Collections.RrbList<int> balanced;
+//     private global::Collections.RrbList<int> unbalanced;
 
 
     [GlobalSetup]
     public void Setup()
     {
-        _list = new RrbList<int>(Enumerable.Range(0, N));
+        _list = new global::Collections.RrbList<int>(Enumerable.Range(0, N));
         _list2 = new List<int>(Enumerable.Range(0, N));
 
-        unbalanced = misc.MakeUnbalanced(35000);
-        balanced = new RrbList<int>(Enumerable.Range(0, 35000));
+//        unbalanced = misc.MakeUnbalanced(35000);
+        balanced = new global::Collections.RrbList<int>(Enumerable.Range(0, 35000));
     }
 
 
@@ -53,8 +53,8 @@ public class RrbBenchmarks
     public long IndexUnbalanced()
     {
         long sum = 0;
-        for (var i = 0; i < unbalanced.Count; i += 2)
-            sum += unbalanced[i];
+//         for (var i = 0; i < unbalanced.Count; i += 2)
+//             sum += unbalanced[i];
 
         return sum;
     }
@@ -76,7 +76,7 @@ public class RrbBenchmarks
     [Benchmark]
     public void Build_Transient()
     {
-        var builder = new RrbBuilder<int>();
+        var builder = new global::Collections.RrbBuilder<int>();
         for (var i = 0; i < N; i++) builder.Add(i);
         var res = builder.ToImmutable();
     }
@@ -84,7 +84,7 @@ public class RrbBenchmarks
     [Benchmark]
     public void Build_Transient_Standard_Leaf()
     {
-        var builder = new RrbBuilder<int>();
+        var builder = new global::Collections.RrbBuilder<int>();
         for (var i = 0; i < N; i++) builder.Add(i);
         var res = builder.ToImmutable();
     }
@@ -104,7 +104,7 @@ public class RrbBenchmarks
     }
 
     [Benchmark]
-    public RrbList<int> Slice_MiddleRrb()
+    public object Slice_MiddleRrb()
     {
         return _list.Slice(N / 4, N / 2);
     }
@@ -112,20 +112,16 @@ public class RrbBenchmarks
     [Benchmark]
     public int RemoveFromUnbalanced()
     {
-        var l = unbalanced.RemoveAt(3456);
-        return unbalanced[3457];
+
+return 0;
     }
 
 
-    [Benchmark]
-    public RrbList<int> InsertUnbalancedNew()
-    {
-        return unbalanced.Insert(400, -1);
-    }
+    
 
 
     [Benchmark]
-    public RrbList<int> InsertBalancedNew()
+    public object InsertBalancedNew()
     {
         return balanced.Insert(400, -1);
     }

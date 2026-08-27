@@ -71,18 +71,13 @@ public sealed partial class RrbList<T>
             return;
         }
 
-        RrbBuilder<T> builder;
+        var isArray = items is T[];
+        var arr = isArray ? (T[])items : items.ToArray();
+        
+        // If it was not originally an array, we just allocated it via ToArray(), 
+        // so we can safely allow the builder to reuse it for the tail if it's short enough.
+        var temp = RrbBuilder<T>.FromArray(arr, reuseArrayIfShorterThan32: !isArray);
 
-        // TODO: benchmark where it makes sense to use a fat tail.
-        var enumerable = items as T[] ?? items.ToArray();
-        if (enumerable.Count() > 4096)
-            builder = new RrbBuilder<T>();
-        else
-            builder = new RrbBuilder<T>();
-
-        foreach (var item in enumerable) builder.Add(item);
-
-        var temp = builder.ToImmutable();
         Root = temp.Root;
         Tail = temp.Tail;
         Count = temp.Count;
