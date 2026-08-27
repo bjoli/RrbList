@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
-public class RrbBuilder<T> where T : notnull
+public class RrbBuilder<T>
 {
     private Node<T>? _root;
     private int _shift;
@@ -106,6 +106,54 @@ public class RrbBuilder<T> where T : notnull
         if (remaining > 0)
         {
             Array.Copy(items, offset, builder._currentTail, 0, remaining);
+            builder._currentTailLen = remaining;
+        }
+
+        return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// Creates a new RRB-List from a ReadOnlySpan directly by chunking it.
+    /// </summary>
+    /// <param name="items">The span of items.</param>
+    /// <returns>A new RRB-List.</returns>
+    public static RrbList<T> FromSpan(ReadOnlySpan<T> items)
+    {
+        if (items.Length == 0) return RrbList<T>.Empty;
+
+        if (items.Length <= Constants.RRB_BRANCHING)
+        {
+            var tail = items.ToArray();
+            return new RrbList<T>(null, tail, items.Length, 0, items.Length);
+        }
+
+        var builder = new RrbBuilder<T>();
+        
+        int offset = 0;
+        int remaining = items.Length;
+        
+        while (remaining > Constants.RRB_BRANCHING)
+        {
+            var leafItems = new T[Constants.RRB_BRANCHING];
+            items.Slice(offset, Constants.RRB_BRANCHING).CopyTo(leafItems);
+            
+            var newLeaf = new LeafNode<T>(leafItems, Constants.RRB_BRANCHING, builder._token);
+            if (builder._chunkIndex == ChunkSize)
+            {
+                builder._chunks.Add(builder._currentChunk);
+                builder._currentChunk = new LeafNode<T>[ChunkSize];
+                builder._chunkIndex = 0;
+            }
+            builder._currentChunk[builder._chunkIndex++] = newLeaf;
+            builder._totalLeaves++;
+            
+            offset += Constants.RRB_BRANCHING;
+            remaining -= Constants.RRB_BRANCHING;
+        }
+        
+        if (remaining > 0)
+        {
+            items.Slice(offset, remaining).CopyTo(builder._currentTail);
             builder._currentTailLen = remaining;
         }
 
@@ -227,6 +275,64 @@ public class RrbBuilder<T> where T : notnull
         _currentTail = new T[Constants.RRB_BRANCHING];
         _currentTail[0] = item;
         _currentTailLen = 1;
+    }
+
+    public void AddRange(ReadOnlySpan<T> items)
+    {
+        if (items.Length == 0) return;
+
+        int offset = 0;
+        int remaining = items.Length;
+
+        // Try to fill the current tail first if there are items and space
+        if (_currentTailLen > 0)
+        {
+            int spaceInTail = Constants.RRB_BRANCHING - _currentTailLen;
+            int toCopy = Math.Min(spaceInTail, remaining);
+            
+            items.Slice(0, toCopy).CopyTo(_currentTail.AsSpan(_currentTailLen));
+            _currentTailLen += toCopy;
+            offset += toCopy;
+            remaining -= toCopy;
+            
+            if (_currentTailLen == Constants.RRB_BRANCHING && remaining > 0)
+            {
+                AddFullNode();
+                _currentTail = new T[Constants.RRB_BRANCHING];
+                _currentTailLen = 0;
+            }
+        }
+
+        // Fast chunking for the rest
+        while (remaining > Constants.RRB_BRANCHING)
+        {
+            var leafItems = new T[Constants.RRB_BRANCHING];
+            items.Slice(offset, Constants.RRB_BRANCHING).CopyTo(leafItems);
+            
+            var newLeaf = new LeafNode<T>(leafItems, Constants.RRB_BRANCHING, _token);
+            if (_chunkIndex == ChunkSize)
+            {
+                _chunks.Add(_currentChunk);
+                _currentChunk = new LeafNode<T>[ChunkSize];
+                _chunkIndex = 0;
+            }
+            _currentChunk[_chunkIndex++] = newLeaf;
+            _totalLeaves++;
+            
+            offset += Constants.RRB_BRANCHING;
+            remaining -= Constants.RRB_BRANCHING;
+        }
+
+        // Remaining tail
+        if (remaining > 0)
+        {
+            if (_currentTailLen == 0) // Meaning we flushed it, or it was 0 from start
+            {
+                _currentTail = new T[Constants.RRB_BRANCHING];
+            }
+            items.Slice(offset, remaining).CopyTo(_currentTail.AsSpan(_currentTailLen));
+            _currentTailLen += remaining;
+        }
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

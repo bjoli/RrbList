@@ -10,9 +10,11 @@
  */
 
 using System.Text;
+using System.Runtime.CompilerServices;
 
 namespace Collections;
 
+[CollectionBuilder(typeof(RrbList), nameof(RrbList.Create))]
 public sealed partial class RrbList<T>
 {
     /**
@@ -292,6 +294,18 @@ public sealed partial class RrbList<T>
         if (items is RrbList<T> rrb) return rrb;
         if (items is ICollection<T> c && c.Count == 0) return Empty;
         return new RrbList<T>(items);
+    }
+
+    /**
+     * <summary>
+     *     Creates a new RRB-List from a <see cref="ReadOnlySpan{T}" />.
+     * </summary>
+     * <param name="items">The items to create the list from.</param>
+     * <returns>A new RRB-List containing the items.</returns>
+     */
+    public static RrbList<T> Create(ReadOnlySpan<T> items)
+    {
+        return RrbBuilder<T>.FromSpan(items);
     }
 
 

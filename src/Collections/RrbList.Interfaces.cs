@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 
 namespace Collections;
 
-public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where T : notnull
+public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T>
 {
 // Explicit Interface Implementation:
     IEnumerator<T> IEnumerable<T>.GetEnumerator()
@@ -36,6 +36,12 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         var other = Create(items);
         if (other.Count == 0) return this;
 
+        return Merge(other);
+    }
+    public RrbList<T> AddRange(ReadOnlySpan<T> items)
+    {
+        var other = Create(items);
+        if (other.Count == 0) return this;
         return Merge(other);
     }
     
@@ -113,27 +119,52 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
         equalityComparer ??= EqualityComparer<T>.Default;
 
 
-        // We use a dictionary to track how many instances of each value we need to remove.
+        var nullRemoveCount = 0;
+#pragma warning disable CS8714
         var toRemove = new Dictionary<T, int>(equalityComparer);
+#pragma warning restore CS8714
         
         // Enumerate to array to avoid multiple enumerations.
         var enumerable = items as T[] ?? items.ToArray();
         foreach (var item in enumerable)
-            if (toRemove.TryGetValue(item, out var count))
+        {
+            if (item == null)
+            {
+                nullRemoveCount++;
+            }
+            else if (toRemove.TryGetValue(item, out var count))
+            {
                 toRemove[item] = count + 1;
+            }
             else
+            {
                 toRemove[item] = 1;
+            }
+        }
 
         // If nothing to remove, return original
-        if (toRemove.Count == 0) return this;
+        if (toRemove.Count == 0 && nullRemoveCount == 0) return this;
 
         // Rebuild the list using Builder
         var builder = new RrbBuilder<T>();
         var changed = false;
 
         foreach (var item in this)
+        {
             // Check if this item is one we need to remove
-            if (toRemove.TryGetValue(item, out var count) && count > 0)
+            if (item == null)
+            {
+                if (nullRemoveCount > 0)
+                {
+                    nullRemoveCount--;
+                    changed = true;
+                }
+                else
+                {
+                    builder.Add(item);
+                }
+            }
+            else if (toRemove.TryGetValue(item, out var count) && count > 0)
             {
                 // Skip adding this item, and decrement the "quota" for this value
                 toRemove[item] = count - 1;
@@ -143,6 +174,7 @@ public sealed partial class RrbList<T> : ICollection<T>, IImmutableList<T> where
             {
                 builder.Add(item);
             }
+        }
 
         if (!changed) return this;
         return builder.ToImmutable();

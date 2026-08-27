@@ -10,7 +10,7 @@ internal struct EnumeratorPathBuffer<T> { private Node<T>? _element0; }
 internal struct EnumeratorIndexBuffer { private int _element0; }
 
 
-public struct RrbEnumerator<T> : IEnumerator<T> where T : notnull
+public struct RrbEnumerator<T> : IEnumerator<T>
 {
     private readonly RrbList<T> _list;
     private readonly int _endIndex; // The exclusive upper bound
@@ -64,7 +64,7 @@ public struct RrbEnumerator<T> : IEnumerator<T> where T : notnull
         get => _currentItems![_leafIndex];
     }
 
-    object IEnumerator.Current => Current;
+    object? IEnumerator.Current => Current;
 
     // Hot Path is 100% IDENTICAL to the previous version
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
