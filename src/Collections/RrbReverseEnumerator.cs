@@ -10,11 +10,18 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
     // --- Hoisted Hot Path Fields ---
     private T[]? _currentItems;
     private int _leafIndex;
+    private int _leafFloor; // Lowest index in this leaf the range allows
     private int _totalIndex;
     // -------------------------------
 
     private readonly int _startIndex;
     private readonly int _count; // Limit how many items to yield
+    private readonly int _stopIndex; // Exclusive lower bound: _startIndex - _count
+
+    /// Whether the walk has entered the tree. Not `_currentItems == null`: the
+    /// tail is items too, and a walk that leaves it for the tree has to *set*
+    /// the stack rather than advance one that was never built.
+    private bool _inTree;
 
     private readonly Node<T>?[] _path;
     private readonly int[] _pathIndexes;
@@ -49,11 +56,14 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         _list = list;
         _startIndex = startIndex;
         _count = count;
+        _stopIndex = startIndex - count;
 
         // Initialize state so first MoveNext() triggers MoveNextRare()
         _totalIndex = startIndex + 1; // Start "after" the item
         _currentItems = null;
         _leafIndex = -2; // Sentinel
+        _leafFloor = 0;
+        _inTree = false;
 
         _path = new Node<T>?[Constants.RRB_MAX_HEIGHT + 1];
         _pathIndexes = new int[Constants.RRB_MAX_HEIGHT + 1];
@@ -71,8 +81,12 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool MoveNext()
     {
-        // Hot Path: Decrement and check bounds (down to 0)
-        if (--_leafIndex >= 0)
+        // Hot Path: Decrement and check bounds (down to the floor)
+        //
+        // The floor is the range's, not the leaf's: a walk of part of the list
+        // ends inside a leaf, and testing only `>= 0` here ran on to the leaf's
+        // start and yielded elements the range does not contain.
+        if (--_leafIndex >= _leafFloor)
         {
             _totalIndex--;
             return true;
@@ -88,7 +102,7 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         // Check Limit (Range Iteration)
         // If we have yielded '_count' items, stop.
         // Stop condition: _totalIndex < (_startIndex - _count + 1)
-        if (_totalIndex <= _startIndex - _count) return false;
+        if (_totalIndex <= _stopIndex) return false;
 
         // 1. Check Tail
         var tailOffset = _list.Count - _list.TailLen;
@@ -98,17 +112,36 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
             _currentItems = tail;
             // In reverse, leafIndex is simply the offset
             _leafIndex = _totalIndex - tailOffset;
+            _leafFloor = Floor();
             return true;
         }
 
         // 2. Traverse Tree
-        if (_currentItems == null)
-            // First time entering tree from start (or tail)
+        if (!_inTree)
+        {
+            // First time entering the tree, from the start or from the tail.
             SetupStack(_list.Root!, _list.Shift, _totalIndex);
+            _inTree = true;
+        }
         else
+        {
             AdvanceStack();
+        }
 
         return true;
+    }
+
+    /// The lowest index in the current leaf the range still allows.
+    ///
+    /// Called once per leaf, with `_totalIndex` and `_leafIndex` both set to
+    /// the element about to be returned. Zero unless the range ends inside
+    /// this leaf, which is the only case the hot path cannot see for itself.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int Floor()
+    {
+        var remaining = _totalIndex - _stopIndex; // Counting the current one
+        var floor = _leafIndex + 1 - remaining;
+        return floor > 0 ? floor : 0;
     }
 
     private void SetupStack(Node<T> root, int shift, int targetIndex)
@@ -135,6 +168,7 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         var leaf = (LeafNode<T>)current;
         _currentItems = leaf.Items;
         _leafIndex = targetIndex; // Exact index within leaf
+        _leafFloor = Floor();
     }
 
     private void AdvanceStack()
@@ -169,6 +203,7 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
                 var leaf = (LeafNode<T>)current;
                 _currentItems = leaf.Items;
                 _leafIndex = leaf.Len - 1; // Start at END of new leaf
+                _leafFloor = Floor();
                 return;
             }
 
@@ -202,6 +237,8 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         _totalIndex = _startIndex + 1;
         _currentItems = null;
         _leafIndex = -2;
+        _leafFloor = 0;
+        _inTree = false;
         _depth = 0;
     }
 
