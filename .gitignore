@@ -1,0 +1,8 @@
+bin/
+obj/
+.idea/
+.vscode/
+*.user
+# Benchmark run output is regenerated on every run.
+benchmark/**/BenchmarkDotNet.Artifacts/*
+!benchmark/**/BenchmarkDotNet.Artifacts/results/
