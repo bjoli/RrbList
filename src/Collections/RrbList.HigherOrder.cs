@@ -20,10 +20,10 @@ public sealed partial class RrbList<T>
      * </summary>
      * <typeparam name="TState">The type of the accumulator value.</typeparam>
      * <param name="seed">The initial accumulator value.</param>
-     * <param name="func">An accumulator function to be invoked on each element with the arguments (state, value)</param>
+     * <param name="func">An accumulator function to be invoked on each element with the arguments (value, state)</param>
      * <returns>The final accumulator value.</returns>
      */
-    public TState Fold<TState>(TState seed, Func<TState, T, TState> func)
+    public TState Fold<TState>(TState seed, Func<T, TState, TState> func)
     {
         var state = seed;
 
@@ -34,7 +34,7 @@ public sealed partial class RrbList<T>
         if (TailLen > 0)
         {
             var items = Tail;
-            for (var i = 0; i < TailLen; i++) state = func(state, items[i]);
+            for (var i = 0; i < TailLen; i++) state = func(items[i], state);
         }
 
         return state;
@@ -51,12 +51,12 @@ public sealed partial class RrbList<T>
         
         // Start iterating from index 1. 
         // ForEach will skip the first element in O(log N) time.
-        this.ForEach(item => state = func(state, item), index: 1);
+        this.ForEach(item => state = func(item, state), index: 1);
         
         return state;
     }
 
-    private TState FoldNode<TState>(Node<T> node, int shift, TState state, Func<TState, T, TState> func)
+    private TState FoldNode<TState>(Node<T> node, int shift, TState state, Func<T, TState, TState> func)
     {
         // Base case: We are at a leaf node
         if (shift == 0)
@@ -66,7 +66,7 @@ public sealed partial class RrbList<T>
             var len = leaf.Len;
 
             // Iterate directly over the array - extremely fast
-            for (var i = 0; i < len; i++) state = func(state, items[i]);
+            for (var i = 0; i < len; i++) state = func(items[i], state);
             return state;
         }
 

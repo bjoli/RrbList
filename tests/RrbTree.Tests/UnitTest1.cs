@@ -316,7 +316,7 @@ public class Tests
     public void Fold_Sum()
     {
         var list = new RrbList<int>(Enumerable.Range(0, 100));
-        var result = list.Fold(0, (state, item) => state + item);
+        var result = list.Fold(0, (item, state) => state + item);
         Assert.That(result, Is.EqualTo(4950));
     }
 

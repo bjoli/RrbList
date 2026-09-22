@@ -62,7 +62,7 @@ public class RrbBenchmarks
     [Benchmark]
     public long FoldRrb()
     {
-        return _list.Fold(0, (i, i1) => i + i1);
+        return _list.Fold(0, (item, acc) => item + acc);
     }
 
 

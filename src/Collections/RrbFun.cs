@@ -42,7 +42,7 @@ public static class RrbFun
 
     public static RrbList<T> Filter<T>(RrbList<T> list, Func<T, bool> predicate) => list.Filter(predicate);
 
-    public static TState Fold<T, TState>(RrbList<T> list, TState seed, Func<TState, T, TState> func) => list.Fold(seed, func);
+    public static TState Fold<T, TState>(RrbList<T> list, TState seed, Func<T, TState, TState> func) => list.Fold(seed, func);
 
     public static T Reduce<T>(RrbList<T> list, Func<T, T, T> func) => list.Reduce(func);
 
