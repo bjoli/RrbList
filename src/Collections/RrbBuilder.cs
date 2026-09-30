@@ -3,10 +3,9 @@ using System.Runtime.CompilerServices;
 namespace Collections;
 
 /// A transient RRB-List. Most vecs a program builds are small, so nothing is
-/// allocated until it is needed and everything starts small: the tail grows
-/// 4, 8, 16, 32 before the first leaf is made, and the array that collects
-/// full leaves grows the same way up to a chunk. A builder of three items is
-/// the builder and one array of four.
+/// allocated until it is needed: the tail, a leaf's worth, comes with the
+/// first item, and the array that collects full leaves with the first leaf,
+/// growing 4, 8, 16 and on up to a chunk.
 public class RrbBuilder<T>
 {
     private Node<T>? _root;
@@ -19,7 +18,6 @@ public class RrbBuilder<T>
     // `_chunks` is full and ChunkSize long; `_currentChunk` grows up to that.
     private const int ChunkSize = 512; // 512 * 8 bytes = 4KB (Well within Gen 0)
     private const int FirstChunkSize = 4;
-    private const int FirstTailSize = 4;
     
     private List<LeafNode<T>[]>? _chunks;
     private LeafNode<T>[]? _currentChunk;
@@ -232,10 +230,8 @@ public class RrbBuilder<T>
             return;
         }
 
-        var capacity = _currentTailLen == 0
-            ? FirstTailSize
-            : Math.Min(_currentTailLen * 2, Constants.RRB_BRANCHING);
-        UnshareTail(capacity);
+        // There is no tail yet, or it is a list's, exactly as long as it is.
+        UnshareTail(Constants.RRB_BRANCHING);
         _currentTail[_currentTailLen++] = item;
     }
 

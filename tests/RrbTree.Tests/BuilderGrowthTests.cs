@@ -2,10 +2,11 @@ using Collections;
 
 namespace rrbtests;
 
-// The builder starts with nothing and grows its tail and its leaf chunk as
-// items come, and hands its tail to the list ToImmutable makes when that tail
-// is exactly full. These check the sizes around every step of that growth,
-// and that a list once made never changes, whatever the builder does next.
+// The builder starts with nothing, makes its tail with the first item and its
+// leaf chunk with the first leaf, grows the chunk as leaves come, and hands
+// its tail to the list ToImmutable makes when that tail is exactly full.
+// These check the sizes around every step of that, and that a list once made
+// never changes, whatever the builder does next.
 [TestFixture]
 public class BuilderGrowthTests
 {
