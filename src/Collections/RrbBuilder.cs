@@ -2,45 +2,46 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
+/// A transient RRB-List. Most vecs a program builds are small, so nothing is
+/// allocated until it is needed and everything starts small: the tail grows
+/// 4, 8, 16, 32 before the first leaf is made, and the array that collects
+/// full leaves grows the same way up to a chunk. A builder of three items is
+/// the builder and one array of four.
 public class RrbBuilder<T>
 {
     private Node<T>? _root;
     private int _shift;
     private int _rootCount;
     
-    // Instead of one giant array that resizes (hitting LOH), we use fixed chunks.
-    // This is pretty huge, actually. 
+    // Full leaves wait here until ToImmutable puts them in the tree. Chunks of
+    // a fixed size rather than one array that doubles, so that a big vec never
+    // makes an array large enough for the large object heap. Every chunk in
+    // `_chunks` is full and ChunkSize long; `_currentChunk` grows up to that.
     private const int ChunkSize = 512; // 512 * 8 bytes = 4KB (Well within Gen 0)
+    private const int FirstChunkSize = 4;
+    private const int FirstTailSize = 4;
     
-    // List of full chunks
-    private readonly List<LeafNode<T>[]> _chunks;
-    // Current active chunk
-    private LeafNode<T>[] _currentChunk;
+    private List<LeafNode<T>[]>? _chunks;
+    private LeafNode<T>[]? _currentChunk;
     // Index in the current chunk
     private int _chunkIndex;
     // Total leaves stored across all chunks
     private int _totalLeaves;
     
-    // --- TAIL BUFFER ---
+    // The tail is handed to the list ToImmutable makes when its length is its
+    // count. It is shared from then on, and the builder copies it before
+    // changing it. A shared tail is always full to its length, so Add's fast
+    // path never writes to one.
     private T[] _currentTail;
     private int _currentTailLen;
+    private bool _tailShared;
     
     private OwnerId _token;
 
     public RrbBuilder()
     {
         _token = OwnerId.Next();
-        _currentTail = new T[Constants.RRB_BRANCHING];
-        
-        // Initialize Chunking
-        _chunks = new List<LeafNode<T>[]>();
-        _currentChunk = new LeafNode<T>[ChunkSize];
-        _chunkIndex = 0;
-        _totalLeaves = 0;
-        
-        _shift = 0;
-        _rootCount = 0;
-        _currentTailLen = 0;
+        _currentTail = Array.Empty<T>();
     }
 
     internal RrbBuilder(RrbList<T> list)
@@ -50,16 +51,17 @@ public class RrbBuilder<T>
         _rootCount = list.Count - list.TailLen;
         _shift = list.Shift;
         
-        _currentTail = new T[Constants.RRB_BRANCHING];
-        if (list.TailLen > 0)
+        if (list.TailLen == list.Tail.Length)
+        {
+            _currentTail = list.Tail;
+            _tailShared = list.TailLen > 0;
+        }
+        else
+        {
+            _currentTail = new T[list.TailLen];
             Array.Copy(list.Tail, _currentTail, list.TailLen);
+        }
         _currentTailLen = list.TailLen;
-
-        // Initialize Chunking
-        _chunks = new List<LeafNode<T>[]>();
-        _currentChunk = new LeafNode<T>[ChunkSize];
-        _chunkIndex = 0;
-        _totalLeaves = 0;
     }
 
     /// <summary>
@@ -80,35 +82,7 @@ public class RrbBuilder<T>
         }
 
         var builder = new RrbBuilder<T>();
-        
-        int offset = 0;
-        int remaining = items.Length;
-        
-        while (remaining > Constants.RRB_BRANCHING)
-        {
-            var leafItems = new T[Constants.RRB_BRANCHING];
-            Array.Copy(items, offset, leafItems, 0, Constants.RRB_BRANCHING);
-            
-            var newLeaf = new LeafNode<T>(leafItems, Constants.RRB_BRANCHING, builder._token);
-            if (builder._chunkIndex == ChunkSize)
-            {
-                builder._chunks.Add(builder._currentChunk);
-                builder._currentChunk = new LeafNode<T>[ChunkSize];
-                builder._chunkIndex = 0;
-            }
-            builder._currentChunk[builder._chunkIndex++] = newLeaf;
-            builder._totalLeaves++;
-            
-            offset += Constants.RRB_BRANCHING;
-            remaining -= Constants.RRB_BRANCHING;
-        }
-        
-        if (remaining > 0)
-        {
-            Array.Copy(items, offset, builder._currentTail, 0, remaining);
-            builder._currentTailLen = remaining;
-        }
-
+        builder.AddRange(items);
         return builder.ToImmutable();
     }
 
@@ -128,35 +102,7 @@ public class RrbBuilder<T>
         }
 
         var builder = new RrbBuilder<T>();
-        
-        int offset = 0;
-        int remaining = items.Length;
-        
-        while (remaining > Constants.RRB_BRANCHING)
-        {
-            var leafItems = new T[Constants.RRB_BRANCHING];
-            items.Slice(offset, Constants.RRB_BRANCHING).CopyTo(leafItems);
-            
-            var newLeaf = new LeafNode<T>(leafItems, Constants.RRB_BRANCHING, builder._token);
-            if (builder._chunkIndex == ChunkSize)
-            {
-                builder._chunks.Add(builder._currentChunk);
-                builder._currentChunk = new LeafNode<T>[ChunkSize];
-                builder._chunkIndex = 0;
-            }
-            builder._currentChunk[builder._chunkIndex++] = newLeaf;
-            builder._totalLeaves++;
-            
-            offset += Constants.RRB_BRANCHING;
-            remaining -= Constants.RRB_BRANCHING;
-        }
-        
-        if (remaining > 0)
-        {
-            items.Slice(offset, remaining).CopyTo(builder._currentTail);
-            builder._currentTailLen = remaining;
-        }
-
+        builder.AddRange(items);
         return builder.ToImmutable();
     }
 
@@ -187,18 +133,15 @@ public class RrbBuilder<T>
         set => SetItem(index, value);
     }
     
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private LeafNode<T> GetLeaf(int globalIndex)
-    {
-        // Determine which chunk the leaf is in
-        int chunkIdx = globalIndex / ChunkSize;
-        int idxInChunk = globalIndex % ChunkSize;
+    private int FullChunks => _chunks?.Count ?? 0;
 
-        if (chunkIdx < _chunks.Count)
-            return _chunks[chunkIdx][idxInChunk];
-        
-        return _currentChunk[idxInChunk];
-    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private LeafNode<T>[] ChunkAt(int chunkIdx) =>
+        chunkIdx < FullChunks ? _chunks![chunkIdx] : _currentChunk!;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private LeafNode<T> GetLeaf(int globalIndex) =>
+        ChunkAt(globalIndex / ChunkSize)[globalIndex % ChunkSize];
     
     private T GetFromTree(Node<T> node, int index, int shift)
     {
@@ -239,11 +182,8 @@ public class RrbBuilder<T>
              var globalLeafIdx = pendingIndex >> Constants.RRB_BITS;
              var itemIdx = pendingIndex & Constants.RRB_MASK;
              
-             // Chunk access logic inline for SetItem (cold path compared to Add)
-             int chunkIdx = globalLeafIdx / ChunkSize;
+             var targetChunk = ChunkAt(globalLeafIdx / ChunkSize);
              int idxInChunk = globalLeafIdx % ChunkSize;
-             
-             LeafNode<T>[] targetChunk = (chunkIdx < _chunks.Count) ? _chunks[chunkIdx] : _currentChunk;
              var leaf = targetChunk[idxInChunk];
 
              if (leaf.Owner != _token)
@@ -258,23 +198,64 @@ public class RrbBuilder<T>
              return;
          }
 
+         if (_tailShared) UnshareTail(_currentTail.Length);
          _currentTail[pendingIndex - pendingTotal] = value;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(T item)
     {
-        if (_currentTailLen < Constants.RRB_BRANCHING)
+        var tail = _currentTail;
+        var len = _currentTailLen;
+        if ((uint)len < (uint)tail.Length)
         {
-            _currentTail[_currentTailLen++] = item;
+            tail[len] = item;
+            _currentTailLen = len + 1;
             return;
         }
 
-        AddFullNode();
+        AddSlow(item);
+    }
         
-        _currentTail = new T[Constants.RRB_BRANCHING];
-        _currentTail[0] = item;
-        _currentTailLen = 1;
+    // The tail is full to its length: it is a leaf's worth and becomes one, or
+    // it grows.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void AddSlow(T item)
+    {
+        if (_currentTailLen == Constants.RRB_BRANCHING)
+        {
+            PushTailAsLeaf();
+            var fresh = new T[Constants.RRB_BRANCHING];
+            fresh[0] = item;
+            _currentTail = fresh;
+            _currentTailLen = 1;
+            return;
+        }
+
+        var capacity = _currentTailLen == 0
+            ? FirstTailSize
+            : Math.Min(_currentTailLen * 2, Constants.RRB_BRANCHING);
+        UnshareTail(capacity);
+        _currentTail[_currentTailLen++] = item;
+    }
+
+    // Replaces the tail with a copy of `capacity`, which is the builder's own.
+    private void UnshareTail(int capacity)
+    {
+        var copy = new T[capacity];
+        Array.Copy(_currentTail, copy, _currentTailLen);
+        _currentTail = copy;
+        _tailShared = false;
+    }
+
+    // A full tail becomes a leaf. One shared with a list is frozen, so that the
+    // builder clones it before setting an item in it.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void PushTailAsLeaf()
+    {
+        var owner = _tailShared ? OwnerId.None : _token;
+        AddLeaf(new LeafNode<T>(_currentTail, Constants.RRB_BRANCHING, owner));
+        _tailShared = false;
     }
 
     public void AddRange(ReadOnlySpan<T> items)
@@ -284,72 +265,125 @@ public class RrbBuilder<T>
         int offset = 0;
         int remaining = items.Length;
 
-        // Try to fill the current tail first if there are items and space
-        if (_currentTailLen > 0)
+        // Fill the tail up to a leaf. When nothing will be left over, the tail
+        // is made exactly as long as it needs to be, so that ToImmutable can
+        // hand it over without copying.
+        if (_currentTailLen < Constants.RRB_BRANCHING)
         {
-            int spaceInTail = Constants.RRB_BRANCHING - _currentTailLen;
-            int toCopy = Math.Min(spaceInTail, remaining);
+            int toTail = Math.Min(Constants.RRB_BRANCHING - _currentTailLen, remaining);
+            int needed = _currentTailLen + toTail;
+            if (_tailShared || needed > _currentTail.Length)
+                UnshareTail(remaining > toTail ? Constants.RRB_BRANCHING : needed);
             
-            items.Slice(0, toCopy).CopyTo(_currentTail.AsSpan(_currentTailLen));
-            _currentTailLen += toCopy;
-            offset += toCopy;
-            remaining -= toCopy;
-            
-            if (_currentTailLen == Constants.RRB_BRANCHING && remaining > 0)
-            {
-                AddFullNode();
-                _currentTail = new T[Constants.RRB_BRANCHING];
-                _currentTailLen = 0;
-            }
+            items.Slice(0, toTail).CopyTo(_currentTail.AsSpan(_currentTailLen));
+            _currentTailLen = needed;
+            offset = toTail;
+            remaining -= toTail;
         }
 
-        // Fast chunking for the rest
+        if (remaining == 0) return;
+
+        // The tail is full, and more follows: room for it and for every whole
+        // leaf after it.
+        ReserveLeaves(1 + ((remaining - 1) >> Constants.RRB_BITS));
+        PushTailAsLeaf();
+
+        // The chunk, its index and the token are kept in locals, and put back
+        // only around the call that finds a new chunk.
+        var token = _token;
+        var chunk = _currentChunk!;
+        var index = _chunkIndex;
+        var added = 0;
         while (remaining > Constants.RRB_BRANCHING)
         {
             var leafItems = new T[Constants.RRB_BRANCHING];
             items.Slice(offset, Constants.RRB_BRANCHING).CopyTo(leafItems);
+            var leaf = new LeafNode<T>(leafItems, Constants.RRB_BRANCHING, token);
             
-            var newLeaf = new LeafNode<T>(leafItems, Constants.RRB_BRANCHING, _token);
-            if (_chunkIndex == ChunkSize)
+            if ((uint)index < (uint)chunk.Length)
             {
-                _chunks.Add(_currentChunk);
-                _currentChunk = new LeafNode<T>[ChunkSize];
-                _chunkIndex = 0;
+                chunk[index++] = leaf;
+                added++;
             }
-            _currentChunk[_chunkIndex++] = newLeaf;
-            _totalLeaves++;
+            else
+            {
+                _chunkIndex = index;
+                _totalLeaves += added;
+                added = 0;
+                AddLeafToNewRoom(leaf);
+                chunk = _currentChunk!;
+                index = _chunkIndex;
+            }
             
             offset += Constants.RRB_BRANCHING;
             remaining -= Constants.RRB_BRANCHING;
         }
+        _chunkIndex = index;
+        _totalLeaves += added;
 
-        // Remaining tail
-        if (remaining > 0)
-        {
-            if (_currentTailLen == 0) // Meaning we flushed it, or it was 0 from start
-            {
-                _currentTail = new T[Constants.RRB_BRANCHING];
-            }
-            items.Slice(offset, remaining).CopyTo(_currentTail.AsSpan(_currentTailLen));
-            _currentTailLen += remaining;
-        }
+        _currentTail = items.Slice(offset, remaining).ToArray();
+        _currentTailLen = remaining;
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private void AddFullNode()
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void AddLeaf(LeafNode<T> leaf)
     {
-        var newLeaf = new LeafNode<T>(_currentTail, Constants.RRB_BRANCHING, _token);
-        
-        // Chunk is full? Move to list and allocate new one.
-        if (_chunkIndex == ChunkSize)
+        var chunk = _currentChunk;
+        var index = _chunkIndex;
+        if (chunk != null && (uint)index < (uint)chunk.Length)
         {
-            _chunks.Add(_currentChunk);
-            _currentChunk = new LeafNode<T>[ChunkSize];
-            _chunkIndex = 0;
+            chunk[index] = leaf;
+            _chunkIndex = index + 1;
+            _totalLeaves++;
+            return;
         }
         
-        _currentChunk[_chunkIndex++] = newLeaf;
+        AddLeafToNewRoom(leaf);
+    }
+
+    // The current chunk is full, or there is none: it grows up to a chunk, or
+    // is put with the full ones and a new chunk begins.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void AddLeafToNewRoom(LeafNode<T> leaf)
+    {
+        var chunk = _currentChunk;
+        if (chunk == null)
+        {
+            chunk = _currentChunk = new LeafNode<T>[FirstChunkSize];
+        }
+        else
+        {
+            if (chunk.Length < ChunkSize)
+            {
+                Array.Resize(ref _currentChunk, Math.Min(chunk.Length * 2, ChunkSize));
+                chunk = _currentChunk;
+            }
+            else
+            {
+                (_chunks ??= new List<LeafNode<T>[]>()).Add(chunk);
+                chunk = _currentChunk = new LeafNode<T>[ChunkSize];
+                _chunkIndex = 0;
+            }
+        }
+
+        chunk[_chunkIndex++] = leaf;
         _totalLeaves++;
+    }
+
+    // Room for `count` more leaves in the current chunk, as far as a chunk
+    // goes, so that a range added at once is not copied as the chunk grows.
+    private void ReserveLeaves(int count)
+    {
+        if (count <= 0) return;
+        if (_currentChunk == null)
+        {
+            _currentChunk = new LeafNode<T>[Math.Clamp(count, FirstChunkSize, ChunkSize)];
+            return;
+        }
+
+        int wanted = _chunkIndex + count;
+        if (wanted > _currentChunk.Length && _currentChunk.Length < ChunkSize)
+            Array.Resize(ref _currentChunk, Math.Min(Math.Max(wanted, _currentChunk.Length * 2), ChunkSize));
     }
 
     public RrbList<T> ToImmutable()
@@ -358,30 +392,47 @@ public class RrbBuilder<T>
         {
             FlushLeavesToTree();
             
-            // Reset state
-            _chunks.Clear();
-            // We can reuse the current allocated chunk to save 1 allocation
-            Array.Clear(_currentChunk, 0, _chunkIndex);
+            // Reset state, keeping the current chunk for the leaves to come.
+            _chunks?.Clear();
+            Array.Clear(_currentChunk!, 0, _chunkIndex);
             _chunkIndex = 0;
             _totalLeaves = 0;
         }
 
-        var frozenRoot = _root;
-        if (frozenRoot != null)
+        if (_root == null)
         {
-            if (frozenRoot is InternalNode<T> inode) frozenRoot = inode.Freeze(_token);
-            else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze(_token);
+            if (_currentTailLen == 0) return RrbList<T>.Empty;
+            var tail = TakeTail();
+            return new RrbList<T>(null, tail, _currentTailLen, 0, _currentTailLen);
         }
 
-        var finalTail = new T[_currentTailLen];
-        Array.Copy(_currentTail, finalTail, _currentTailLen);
+        var frozenRoot = _root;
+        if (frozenRoot is InternalNode<T> inode) frozenRoot = inode.Freeze(_token);
+        else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze(_token);
         
+        var finalTail = TakeTail();
         var totalCount = _rootCount + _currentTailLen;
         
         _token = OwnerId.Next();
         _root = frozenRoot;
         
         return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length);
+    }
+
+    // The tail for a list: the builder's own when it is exactly as long as its
+    // count, which the builder then shares, and otherwise a copy.
+    private T[] TakeTail()
+    {
+        if (_currentTailLen == 0) return Array.Empty<T>();
+        if (_currentTailLen == _currentTail.Length)
+        {
+            _tailShared = true;
+            return _currentTail;
+        }
+
+        var tail = new T[_currentTailLen];
+        Array.Copy(_currentTail, tail, _currentTailLen);
+        return tail;
     }
     
     private void FlushLeavesToTree()
@@ -465,7 +516,6 @@ public class RrbBuilder<T>
 
         // 2. FILL NEW SIBLINGS
         
-        // A. BOTTOM LEVEL (Shift 5) - Loop Copy
         // A. BOTTOM LEVEL (Shift 5) - Array.Copy Optimization
         if (shift == Constants.RRB_BITS)
         {
@@ -481,9 +531,10 @@ public class RrbBuilder<T>
             int iIdx = globalCursor % ChunkSize;
     
             // 2. Determine source chunk
-            var chunk = (cIdx < _chunks.Count) ? _chunks[cIdx] : _currentChunk;
+            var chunk = ChunkAt(cIdx);
     
-            // 3. Check if the copy spans across a chunk boundary
+            // 3. Check if the copy spans across a chunk boundary. Only a full
+            // chunk can be crossed: the current one holds every leaf left.
             int availableInChunk = ChunkSize - iIdx;
     
             if (countToCopy <= availableInChunk)
@@ -500,8 +551,7 @@ public class RrbBuilder<T>
         
                 // Copy Part 2 (Start of next chunk)
                 int remaining = countToCopy - availableInChunk;
-                cIdx++; 
-                chunk = (cIdx < _chunks.Count) ? _chunks[cIdx] : _currentChunk;
+                chunk = ChunkAt(cIdx + 1);
         
                 Array.Copy(chunk, 0, children, startIdx + availableInChunk, remaining);
             }
