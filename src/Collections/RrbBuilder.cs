@@ -148,7 +148,7 @@ public class RrbBuilder<T>
             var inode = RrbAlgorithm.AsInternal(node);
             if (inode.IsRelaxed())
             {
-                var (childIdx, relIdx) = RrbAlgorithm.GetRelaxedIndexAvx(inode, index, shift);
+                var (childIdx, relIdx) = RrbAlgorithm.GetRelaxedIndex(inode, index, shift);
                 node = inode.Children[childIdx]!;
                 index = relIdx;
             }

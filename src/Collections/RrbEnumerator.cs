@@ -201,7 +201,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         if (node.IsRelaxed())
         {
             // Route relaxed nodes straight to your AVX engine
-            return RrbAlgorithm.GetRelaxedIndexAvx(node, index, shift);
+            return RrbAlgorithm.GetRelaxedIndex(node, index, shift);
         }
     
         int childIndex = (index >> shift) & Constants.RRB_MASK;

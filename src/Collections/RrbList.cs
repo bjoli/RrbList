@@ -180,7 +180,7 @@ public sealed partial class RrbList<T>
             while (node.IsRelaxed())
             {
                 var internalNode = RrbAlgorithm.AsInternal(node);
-                var (childIndex, relativeIndex) = RrbAlgorithm.GetRelaxedIndexAvx(internalNode, index, shift);
+                var (childIndex, relativeIndex) = RrbAlgorithm.GetRelaxedIndex(internalNode, index, shift);
 
                 node = internalNode.Children[childIndex]!;
                 index = relativeIndex;

@@ -1299,43 +1299,37 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
             return (childIndex, index - childStart);
         }
 
-        return GetRelaxedIndexAvx(node, index, shift);
+        return GetRelaxedIndex(node, index, shift);
     }
 
+    // The child holding `index` in a relaxed node: the first whose cumulative
+    // size exceeds it. A child holds at most 1 << shift items, so it is never
+    // left of index >> shift, and the search starts there.
+    //
+    // How far right of that it lies depends on how full the children are, and a
+    // loop that stops there mispredicts its exit on nearly every lookup. The
+    // table is increasing, so in a window of 8 entries that starts at or before
+    // the answer, the entries <= index are exactly those before it: one compare
+    // and a popcount count the steps. The loop below only runs when the answer
+    // is 8 or more past the window, or the node has fewer than 8 children.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static (int childIndex, int relativeIndex) GetRelaxedIndexAvx<T>(InternalNode<T> node, int index, int shift)
+    internal static (int childIndex, int relativeIndex) GetRelaxedIndex<T>(InternalNode<T> node, int index, int shift)
     {
         int len = node.Len;
-        int i = 0;
+        int last = len - 1;
         int[] table = node.SizeTable!;
 
+        int i = index >> shift;
         if (Vector256.IsHardwareAccelerated && len >= 8)
         {
-            var vIndex = Vector256.Create(index);
-
-            // Process in chunks of 8 elements natively without pinning memory pointers
-            for (; i <= len - 8; i += 8)
-            {
-                var vTable = Vector256.LoadUnsafe(ref table[i]);
-
-                // Performs comparison directly within integer hardware pipelines
-                var vResult = Vector256.GreaterThan(vTable, vIndex);
-
-                // Directly extracts the sign bits of each element without floating-point penalty
-                uint mask = Vector256.ExtractMostSignificantBits(vResult);
-
-                if (mask != 0)
-                {
-                    // Find first set bit (first child that is larger than index)
-                    int offset = BitOperations.TrailingZeroCount(mask);
-                    int matchIndex = i + offset;
-                    int prevCount = matchIndex > 0 ? table[matchIndex - 1] : 0;
-
-                    return (matchIndex, index - prevCount);
-                }
-            }
+            int start = Math.Min(i, len - 8);
+            var window = Vector256.LoadUnsafe(ref table[start]);
+            uint before = Vector256.LessThanOrEqual(window, Vector256.Create(index)).ExtractMostSignificantBits();
+            i = start + BitOperations.PopCount(before);
         }
-        while (i < len && table[i] <= index) i++;
+
+        if (i > last) i = last;
+        while (i < last && table[i] <= index) i++;
 
         var prev = i > 0 ? table[i - 1] : 0;
         return (i, index - prev);

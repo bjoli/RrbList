@@ -135,4 +135,28 @@ public class RegressionTests
 
         AssertSame(expected, builder.ToImmutable());
     }
+
+    // Merging many small pieces leaves relaxed nodes whose children are far
+    // from full, so the child holding an index lies well right of
+    // index >> shift: past the 8-entry window the lookup starts with.
+    [TestCase(1, 3, 5000)]
+    [TestCase(1, 40, 40_000)]
+    [TestCase(30, 34, 70_000)]
+    public void Indexing_RelaxedNodesWithSparseChildren(int minPiece, int maxPiece, int total)
+    {
+        var source = RrbList<int>.Create(Enumerable.Range(0, total * 2).ToArray());
+        var rnd = new Random(minPiece * 31 + maxPiece);
+        var list = RrbList<int>.Empty;
+        var expected = new List<int>();
+        var pos = 0;
+        while (list.Count < total)
+        {
+            var len = rnd.Next(minPiece, maxPiece + 1);
+            list = list.Merge(source.Slice(pos, len));
+            expected.AddRange(Enumerable.Range(pos, len));
+            pos += len;
+        }
+
+        AssertSame(expected, list);
+    }
 }
