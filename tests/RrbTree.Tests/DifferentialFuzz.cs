@@ -31,6 +31,25 @@ public class DifferentialFuzz
             j++;
         }
         if (j != expected.Count) throw new Exception($"{what}: enumerator yielded {j} items");
+        CheckWear(actual, what);
+    }
+
+    // The tree has not worn down, whatever was done to it: a lookup's search
+    // stays inside one AVX window, and its leaves are not much emptier than
+    // they need be.
+    //
+    // Height is not checked. A slice keeps the height of the tree it was cut
+    // from, so a list that was once large stays a level or two taller than its
+    // items need. That costs a pointer hop per level, and the height never
+    // grows past what the largest the list has been needed.
+    internal static void CheckWear(RrbList<int> actual, string what)
+    {
+        var walk = actual.MaxSearchDistance();
+        if (walk > 8) throw new Exception($"{what}: a lookup walks {walk} slots");
+
+        var (_, leaves, _, fewest) = actual.Shape();
+        if (leaves > fewest + fewest / 4 + 4)
+            throw new Exception($"{what}: {leaves} leaves, where {fewest} would do");
     }
 
     // A list built one of several ways, so that merges see differently shaped trees.
@@ -310,6 +329,7 @@ public class DifferentialFuzz
     [TestCase(6)]
     [TestCase(7)]
     [TestCase(8)]
+    [TestCase(67)]
     public void RandomOperations_MatchList(int seed)
     {
         _rng = new Random(seed);

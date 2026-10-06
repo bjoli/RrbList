@@ -56,6 +56,13 @@ internal static class RrbAlgorithm
     // For example, if the plan is [32, 32, 5],ExecuteConcatPlan will 
     // create three nodes containing 32, 32, and 5 items respectively.
 
+    // The most children a node may have when they hold `slots` between them:
+    // the fewest that could hold them, plus RRB_EXTRAS. This is the search step
+    // invariant, and the bound a concatenation plan restores.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static int AllowedChildren(int slots) =>
+        (slots - 1) / Constants.RRB_BRANCHING + 1 + Constants.RRB_EXTRAS;
+
     public static (Node<T> Node, int Size) Concat<T>(Node<T> leftNode, int leftSize, Node<T> rightNode, int rightSize, int leftShift, int rightShift, out int newShift)
     {
         if (leftShift > rightShift)
@@ -78,35 +85,22 @@ internal static class RrbAlgorithm
             return Rebalance(null, 0, mergedMid, mergedSize, right, rightSize - firstChildSize, rightShift, subShift, out newShift);
         }
 
-        if (leftNode.Len + rightNode.Len <= Constants.RRB_BRANCHING)
+        // Two leaves whose items fit in one become one. Two internal nodes go
+        // through the seam below even when their children would fit in one:
+        // joining the lists as they are leaves the nodes at the seam as they
+        // were, and a part-full tail that Merge pushed into the left tree is
+        // one of them. Rebalance joins them as they are when that keeps the
+        // invariant.
+        if (leftShift == 0 && leftNode.Len + rightNode.Len <= Constants.RRB_BRANCHING)
         {
-            newShift = leftShift;
+            newShift = 0;
             var newLen = leftNode.Len + rightNode.Len;
-            if (leftShift == 0)
-            {
-                var lLeaf = AsLeaf(leftNode);
-                var rLeaf = AsLeaf(rightNode);
-                var newItems = new T[newLen];
-                Array.Copy(lLeaf.Items, 0, newItems, 0, lLeaf.Len);
-                Array.Copy(rLeaf.Items, 0, newItems, lLeaf.Len, rLeaf.Len);
-                return (new LeafNode<T>(newItems, newLen, OwnerId.None), leftSize + rightSize);
-            }
-            
-            var lInt = AsInternal(leftNode);
-            var rInt = AsInternal(rightNode);
-            var newChildren = new Node<T>?[newLen];
-            Array.Copy(lInt.Children, 0, newChildren, 0, lInt.Len);
-            Array.Copy(rInt.Children, 0, newChildren, lInt.Len, rInt.Len);
-
-            int[]? newTable = null;
-            if (lInt.IsRelaxed() || rInt.IsRelaxed() || lInt.Len < Constants.RRB_BRANCHING) 
-            {
-                newTable = new int[newLen];
-                int sum = 0;
-                for (int i = 0; i < lInt.Len; i++) { sum += GetChildKnownSize(lInt, i, leftSize, leftShift); newTable[i] = sum; }
-                for (int i = 0; i < rInt.Len; i++) { sum += GetChildKnownSize(rInt, i, rightSize, rightShift); newTable[lInt.Len + i] = sum; }
-            }
-            return (new InternalNode<T>(newChildren, newTable, newLen, OwnerId.None), leftSize + rightSize);
+            var lLeaf = AsLeaf(leftNode);
+            var rLeaf = AsLeaf(rightNode);
+            var newItems = new T[newLen];
+            Array.Copy(lLeaf.Items, 0, newItems, 0, lLeaf.Len);
+            Array.Copy(rLeaf.Items, 0, newItems, lLeaf.Len, rLeaf.Len);
+            return (new LeafNode<T>(newItems, newLen, OwnerId.None), leftSize + rightSize);
         }
 
         if (leftShift == 0)
@@ -137,7 +131,34 @@ internal static class RrbAlgorithm
         int totalSize = leftBaseSize + centerSize + rightBaseSize;
         int childCount = (left != null ? left.Len - 1 : 0) + (centerShift == shift ? AsInternal(center).Len : 1) + (right != null ? right.Len - 1 : 0);
 
-        if (childCount <= Constants.RRB_BRANCHING)
+        // What the children hold between them, for the search step invariant.
+        // Children that fit in one node are kept as they are only when they
+        // keep it; otherwise a run of small merges piles part-full children
+        // into one node until lookups in it have to search far.
+        // Above the leaves a slot is an item, and how many is already known.
+        var slots = 0;
+        if (shift == Constants.RRB_BITS)
+        {
+            slots = totalSize;
+        }
+        else
+        {
+            if (left != null)
+                for (var i = 0; i < left.Len - 1; i++) slots += left.Children[i]!.Len;
+            if (centerShift == shift)
+            {
+                var c = AsInternal(center);
+                for (var i = 0; i < c.Len; i++) slots += c.Children[i]!.Len;
+            }
+            else
+            {
+                slots += center.Len;
+            }
+            if (right != null)
+                for (var i = 1; i < right.Len; i++) slots += right.Children[i]!.Len;
+        }
+
+        if (childCount <= Constants.RRB_BRANCHING && childCount <= AllowedChildren(slots))
         {
             var newChildren = new Node<T>?[childCount];
             var newSizes = new int[childCount];
@@ -340,8 +361,21 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
                     if (offset == srcInternal.Len) { idx++; offset = 0; }
                 }
                 newChildren[i] = new InternalNode<T>(newSubChildren, newSubSizes, newSize, OwnerId.None);
-                
-                // ADDED: The total size of this newly constructed node is exactly subTotal.
+
+                // The node is made of whole children moved from other nodes, so
+                // it can hold more part-full ones than the invariant allows, and
+                // a run of merges would pile them up. It is repacked when it
+                // does. Above the leaves a slot is an item.
+                var childShift = shift - Constants.RRB_BITS;
+                var slots = childShift == Constants.RRB_BITS ? subTotal : SlotsOfChildren(newSubChildren, newSize);
+                if (newSize > AllowedChildren(slots))
+                {
+                    var subSizes = new int[newSize];
+                    for (var c = 0; c < newSize; c++) subSizes[c] = newSubSizes[c] - (c > 0 ? newSubSizes[c - 1] : 0);
+                    newChildren[i] = BuildChecked(newSubChildren, subSizes, newSize, childShift).NewNode;
+                }
+
+                // The total size of this newly constructed node is exactly subTotal.
                 nodeAccumulatedSize = subTotal;
             }
             
@@ -1395,125 +1429,54 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
         var child = internalNode.Children[childIndex]!;
         var newChild = RemoveRecursive(child, subIndex, shift - Constants.RRB_BITS);
 
+        var len = internalNode.Len;
 
-        // Best case: The child became empty (remove it from children array)
+        // The child held only the item removed, and so did this node.
+        if (newChild == null && len == 1) return null;
+
+        // The children and the table as they are now, the emptied child left
+        // out. The table is always kept: a dense node with a child one item
+        // short is no longer dense.
+        var cumulative = internalNode.SizeTable ?? DenseTable(internalNode, shift);
+        Node<T>?[] children;
+        int[] table;
+        int count;
         if (newChild == null)
         {
-            // If this was the only child, this node also becomes empty
-            if (internalNode.Len == 1) return null;
-
-            var newLen = internalNode.Len - 1;
-            var newChildren = new Node<T>?[newLen];
-
-            // Copy children before
-            if (childIndex > 0)
-                Array.Copy(internalNode.Children, 0, newChildren, 0, childIndex);
-
-            // Copy children after (shifting left)
-            if (childIndex < newLen)
-                Array.Copy(internalNode.Children, childIndex + 1, newChildren, childIndex, newLen - childIndex);
-
-            // Unless we update the sizetable after removing a node, we will get a lot of nagging
-            var newSizeTable = new int[newLen];
-
-            if (internalNode.SizeTable != null)
-            {
-                // Copy part before
-                if (childIndex > 0)
-                    Array.Copy(internalNode.SizeTable, newSizeTable, childIndex);
-
-                // Copy part after, subtracting 1 from all cumulative counts
-                // (We removed exactly 1 item from the tree below)
-                for (var i = childIndex; i < newLen; i++) newSizeTable[i] = internalNode.SizeTable[i + 1] - 1;
-            }
-            else
-            {
-                // Convert Dense -> Relaxed
-                var childShift = shift - Constants.RRB_BITS;
-
-                // Reconstruct table. 
-                // RemoveRecursive removes ONE item. If the child returns null, it means 
-                // that child contained ONLY that one item.
-                // So we subtract 1 from the total.
-
-                var currentSum = 0;
-                // Iterate over the new structure (skipping the removed child)
-                for (var i = 0; i < newLen; i++)
-                {
-                    // If the old child was Dense, its size was blockSize.
-                    // But we know internalNode was Dense, so all children (except last) were full.
-                    // Actually, simply: We iterate the new children and ask for their size.
-                    // Since this is max 32, it's fine.
-                    // Optimally:
-                    // Pre-childIndex: sum += blockSize (mostly)
-                    // Post-childIndex: sum += blockSize
-                    // But let us use Countree.
-
-                    currentSum += CountTree(newChildren[i]!, childShift);
-                    newSizeTable[i] = currentSum;
-                }
-            }
-
-            return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
+            count = len - 1;
+            children = new Node<T>?[count];
+            table = new int[count];
+            Array.Copy(internalNode.Children, 0, children, 0, childIndex);
+            Array.Copy(internalNode.Children, childIndex + 1, children, childIndex, count - childIndex);
+            Array.Copy(cumulative, 0, table, 0, childIndex);
+            for (var i = childIndex; i < count; i++) table[i] = cumulative[i + 1] - 1;
         }
-        // Second best case: The child exists (just modified)
         else
         {
-            int newLen = internalNode.Len;
-            var newChildren = new Node<T>?[newLen];
-            Array.Copy(internalNode.Children, newChildren, newLen);
-            newChildren[childIndex] = newChild;
-
-            // Update SizeTable
-            // We removed exactly 1 item.
-            var newSizeTable = new int[newLen];
-
-            if (internalNode.SizeTable != null)
-            {
-                // Copy before
-                Array.Copy(internalNode.SizeTable, newSizeTable, childIndex);
-
-                // Adjust current and after
-                newSizeTable[childIndex] = internalNode.SizeTable[childIndex] - 1;
-                for (var i = childIndex + 1; i < newLen; i++) newSizeTable[i] = internalNode.SizeTable[i] - 1;
-            }
-            else
-            {
-                // Dense -> Relaxed
-                // We must build the table because index arithmetic breaks.
-                var childShift = shift - Constants.RRB_BITS;
-                var blockSize = 1 << shift;
-
-                var currentSum = 0;
-                for (var i = 0; i < newLen; i++)
-                {
-                    if (i == childIndex)
-                    {
-                        // This is the modified child. It is 1 smaller than before.
-                        // If it was the last child, we calculate exact size.
-                        // If it was a middle child, it WAS full, so now it is blockSize - 1.
-                        if (i == newLen - 1)
-                            currentSum += CountTree(newChild, childShift);
-                        else
-                            currentSum += blockSize - 1;
-                    }
-                    else if (i == newLen - 1)
-                    {
-                        // Last child of dense node (might be partial)
-                        currentSum += CountTree(internalNode.Children[i]!, childShift);
-                    }
-                    else
-                    {
-                        // Middle child of dense node (Always full)
-                        currentSum += blockSize;
-                    }
-
-                    newSizeTable[i] = currentSum;
-                }
-            }
-
-            return new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None);
+            count = len;
+            children = new Node<T>?[count];
+            table = new int[count];
+            Array.Copy(internalNode.Children, children, count);
+            children[childIndex] = newChild;
+            Array.Copy(cumulative, 0, table, 0, childIndex);
+            for (var i = childIndex; i < count; i++) table[i] = cumulative[i] - 1;
         }
+
+        // Above the leaves, a child that kept its number of children leaves
+        // this node's slots as they were, so the invariant cannot have moved.
+        // At the level above the leaves a slot is an item, and the table
+        // already holds how many.
+        int slots;
+        if (shift == Constants.RRB_BITS) slots = table[count - 1];
+        else if (newChild != null && newChild.Len == child.Len) slots = int.MaxValue;
+        else slots = SlotsOfChildren(children, count);
+
+        if (slots == int.MaxValue || count <= AllowedChildren(slots))
+            return new InternalNode<T>(children, table, count, OwnerId.None);
+
+        var sizes = new int[count];
+        for (var i = 0; i < count; i++) sizes[i] = table[i] - (i > 0 ? table[i - 1] : 0);
+        return RepairAfterRemove(children, sizes, count, newChild == null ? -1 : childIndex, shift);
     }
 
 
@@ -1568,6 +1531,25 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
         // Pretty case: Child Update (No Split)
         if (result.Overflow == null)
         {
+            // A child that repacked itself may hold fewer slots than before,
+            // and this node then has to check that it still keeps the
+            // invariant.
+            if (result.NewNode.Len < child.Len)
+            {
+                var len = internalNode.Len;
+                var kids = new Node<T>?[len];
+                var sizes = new int[len];
+                for (var i = 0; i < len; i++)
+                {
+                    kids[i] = internalNode.Children[i];
+                    sizes[i] = ChildSize(internalNode, i, shift);
+                }
+
+                kids[childIndex] = result.NewNode;
+                sizes[childIndex]++;
+                return BuildChecked(kids, sizes, len, shift);
+            }
+
             var newChildren = new Node<T>?[internalNode.Len];
             Array.Copy(internalNode.Children, newChildren, internalNode.Len);
             newChildren[childIndex] = result.NewNode;
@@ -1635,165 +1617,324 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
             return new InsertResult<T>(new InternalNode<T>(newChildren, newSizeTable, internalNode.Len, OwnerId.None));
         }
 
-        // Sad case: Child owerflow
+        // The child split in two. A neighbour with room takes the extra slot,
+        // and failing that the node takes a child more, which repairs itself
+        // when that breaks the invariant.
+        return AbsorbSplit(internalNode, childIndex, result.NewNode, result.Overflow, shift);
+    }
 
-        // Check if overflow
-        if (internalNode.Len < Constants.RRB_BRANCHING)
+    // -----------------------------------------------------------------------
+    // Keeping the search step invariant through insert and remove
+    // -----------------------------------------------------------------------
+    //
+    // A node may have at most RRB_EXTRAS more children than the fewest that
+    // could hold what they hold (AllowedChildren). An insert adds one slot
+    // below a node and a remove takes one away, so either can move a node past
+    // the bound only by one. Two cheap moves keep it there almost always:
+    //
+    //  - A child that splits gives its extra slot to a neighbour with room, so
+    //    the node keeps its number of children. This is the B*-tree move, and
+    //    copies the two nodes involved.
+    //  - A child that shrinks past the bound merges with a neighbour it fits
+    //    in, which takes the node back down by one.
+    //
+    // When neither is possible the node's children are spread evenly over one
+    // node more than the fewest that would hold them. That copies up to a
+    // node's worth of children, and leaves every child a little room, so the
+    // splits that follow go to neighbours and the next repair under the same
+    // node is a long way off.
+    //
+    // A repair above the leaf parents, like a merge's plan, moves whole
+    // children from one node to the next. ExecuteConcatPlan checks every node
+    // it makes that way and repacks the ones that break the invariant, since
+    // otherwise each pass could hand a node more part-full children than the
+    // last.
+
+    // How much the child at `i` of a node at `shift` holds.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int ChildSize<T>(InternalNode<T> node, int i, int shift)
+    {
+        if (node.SizeTable != null)
+            return node.SizeTable[i] - (i > 0 ? node.SizeTable[i - 1] : 0);
+        if (i < node.Len - 1) return 1 << shift;
+        return CountTree(node.Children[i]!, shift - Constants.RRB_BITS);
+    }
+
+    // The slots the first `count` children hold between them. At the level
+    // above the leaves a slot is an item, so that is their sizes added up and
+    // no child has to be read.
+    private static int SlotsOf<T>(Node<T>?[] children, int[] sizes, int count, int shift)
+    {
+        var slots = 0;
+        if (shift == Constants.RRB_BITS)
+            for (var i = 0; i < count; i++) slots += sizes[i];
+        else
+            for (var i = 0; i < count; i++) slots += children[i]!.Len;
+        return slots;
+    }
+
+    // A node at `shift` over the first `count` children, each holding sizes[i],
+    // kept as they are when they keep the invariant and repacked by a
+    // concatenation plan when they do not. Two nodes come back when more than
+    // a node's worth of children are left, each with half.
+    private static InsertResult<T> BuildChecked<T>(Node<T>?[] children, int[] sizes, int count, int shift)
+    {
+        var slots = SlotsOf(children, sizes, count, shift);
+
+        if (count <= AllowedChildren(slots))
         {
-            var newLen = internalNode.Len + 1;
-            var newChildren = new Node<T>?[newLen];
+            if (count <= Constants.RRB_BRANCHING)
+                return new InsertResult<T>(Slab(children, sizes, 0, count));
 
-            if (childIndex > 0) Array.Copy(internalNode.Children, 0, newChildren, 0, childIndex);
-            newChildren[childIndex] = result.NewNode;
-            newChildren[childIndex + 1] = result.Overflow;
-            if (childIndex + 1 < internalNode.Len)
-                Array.Copy(internalNode.Children, childIndex + 1, newChildren, childIndex + 2,
-                    internalNode.Len - (childIndex + 1));
+            // Only too many for one node: split as they are, in halves, so
+            // both have room for the inserts that come next.
+            var mid = count / 2;
+            return new InsertResult<T>(Slab(children, sizes, 0, mid), Slab(children, sizes, mid, count - mid));
+        }
 
-            int[]? newSizeTable;
+        // Spread evenly over one node more than the fewest that would do.
+        // Packing them full instead leaves no neighbour with room, so the next
+        // split under this node is kept, and two or three of those break the
+        // invariant again. One more than the fewest is within the invariant,
+        // and fewer than `count`, which broke it.
+        var topLen = (slots - 1) / Constants.RRB_BRANCHING + 2;
+        Span<int> plan = stackalloc int[topLen];
+        for (var i = 0; i < topLen; i++)
+            plan[i] = slots / topLen + (i < slots % topLen ? 1 : 0);
 
-            if (internalNode.SizeTable != null)
+        var all = new ReadOnlySpan<Node<T>>(children!, 0, count);
+        return new InsertResult<T>(ExecuteConcatPlan(all, new ReadOnlySpan<int>(sizes, 0, count), plan, topLen, shift));
+    }
+
+    // A relaxed node over `count` of the children starting at `start`.
+    private static InternalNode<T> Slab<T>(Node<T>?[] children, int[] sizes, int start, int count)
+    {
+        var kids = new Node<T>?[count];
+        var table = new int[count];
+        var sum = 0;
+        for (var i = 0; i < count; i++)
+        {
+            kids[i] = children[start + i];
+            sum += sizes[start + i];
+            table[i] = sum;
+        }
+
+        return new InternalNode<T>(kids, table, count, OwnerId.None);
+    }
+
+    // Replaces windowLen children starting at `start` by the nodes a plan
+    // makes of them, and closes up the gap. Answers the new number of children.
+    private static int Reshape<T>(Node<T>?[] children, int[] sizes, int count, int start, int windowLen,
+        Span<int> plan, int shift)
+    {
+        var made = ExecuteConcatPlan(
+            new ReadOnlySpan<Node<T>>(children!, start, windowLen),
+            new ReadOnlySpan<int>(sizes, start, windowLen),
+            plan, plan.Length, shift);
+
+        var prev = 0;
+        for (var k = 0; k < plan.Length; k++)
+        {
+            children[start + k] = made.Children[k];
+            sizes[start + k] = made.SizeTable![k] - prev;
+            prev = made.SizeTable[k];
+        }
+
+        var gap = windowLen - plan.Length;
+        for (var i = start + plan.Length; i + gap < count; i++)
+        {
+            children[i] = children[i + gap];
+            sizes[i] = sizes[i + gap];
+        }
+
+        return count - gap;
+    }
+
+    // The child at `at` of a node at `shift` split into `left` and `right`.
+    private static InsertResult<T> AbsorbSplit<T>(InternalNode<T> node, int at, Node<T> left, Node<T> right, int shift)
+    {
+        var len = node.Len;
+        var childShift = shift - Constants.RRB_BITS;
+        var cumulative = node.SizeTable ?? DenseTable(node, shift);
+        var before = at > 0 ? cumulative[at - 1] : 0;
+        var leftSize = CountTree(left, childShift);
+        var rightSize = CountTree(right, childShift);
+
+        // One full node of the two halves, and what is over goes to the
+        // neighbour with the most room, if it has enough. The node keeps its
+        // number of children and gains one slot, so the invariant still holds.
+        var extra = left.Len + right.Len - Constants.RRB_BRANCHING;
+        var leftRoom = at > 0 ? Constants.RRB_BRANCHING - node.Children[at - 1]!.Len : 0;
+        var rightRoom = at + 1 < len ? Constants.RRB_BRANCHING - node.Children[at + 1]!.Len : 0;
+        var toLeft = extra > 0 && leftRoom >= extra && leftRoom >= rightRoom;
+        var toRight = !toLeft && extra > 0 && rightRoom >= extra;
+
+        if (toLeft || toRight)
+        {
+            // The window of three nodes, and where it starts among the children.
+            var start = toLeft ? at - 1 : at;
+            var window = new Node<T>[3];
+            var windowSizes = new int[3];
+            Span<int> plan = stackalloc int[2];
+            if (toLeft)
             {
-                newSizeTable = new int[newLen];
-                Array.Copy(internalNode.SizeTable, newSizeTable, childIndex);
-
-                var prevTotal = childIndex > 0 ? newSizeTable[childIndex - 1] : 0;
-                var leftSize = CountTree(result.NewNode, shift - Constants.RRB_BITS);
-                var rightSize = CountTree(result.Overflow, shift - Constants.RRB_BITS);
-
-                newSizeTable[childIndex] = prevTotal + leftSize;
-                newSizeTable[childIndex + 1] = prevTotal + leftSize + rightSize;
-
-                for (var i = childIndex + 1; i < internalNode.Len; i++)
-                    newSizeTable[i + 1] = internalNode.SizeTable[i] + 1;
+                var nb = node.Children[at - 1]!;
+                window[0] = nb;
+                windowSizes[0] = before - (at > 1 ? cumulative[at - 2] : 0);
+                window[1] = left;
+                windowSizes[1] = leftSize;
+                window[2] = right;
+                windowSizes[2] = rightSize;
+                plan[0] = nb.Len + extra;
+                plan[1] = Constants.RRB_BRANCHING;
             }
             else
             {
-                // Dense -> Relaxed (Split Logic)
-                // Let's just assume an insert makes a relaxed child. 
-                newSizeTable = new int[newLen];
-                var childShift = shift - Constants.RRB_BITS;
-                var blockSize = 1 << shift;
-                var currentSum = 0;
-
-                // Children before split (Guaranteed Full)
-                for (var i = 0; i < childIndex; i++)
-                {
-                    currentSum += blockSize;
-                    newSizeTable[i] = currentSum;
-                }
-
-                // Measure the split children
-                currentSum += CountTree(result.NewNode, childShift);
-                newSizeTable[childIndex] = currentSum;
-
-                currentSum += CountTree(result.Overflow, childShift);
-                newSizeTable[childIndex + 1] = currentSum;
-
-                // Children after split (Shifted, Last one might be partial)
-                for (var i = childIndex + 1; i < internalNode.Len; i++)
-                {
-                    var size = i == internalNode.Len - 1
-                        ? CountTree(internalNode.Children[i]!, childShift)
-                        : blockSize;
-                    currentSum += size;
-                    newSizeTable[i + 1] = currentSum;
-                }
+                var nb = node.Children[at + 1]!;
+                window[0] = left;
+                windowSizes[0] = leftSize;
+                window[1] = right;
+                windowSizes[1] = rightSize;
+                window[2] = nb;
+                windowSizes[2] = cumulative[at + 1] - cumulative[at];
+                plan[0] = Constants.RRB_BRANCHING;
+                plan[1] = nb.Len + extra;
             }
 
-            return new InsertResult<T>(new InternalNode<T>(newChildren, newSizeTable, newLen, OwnerId.None));
+            Node<T> first, second;
+            int firstSize;
+            if (shift == Constants.RRB_BITS)
+            {
+                // Leaves: the items copied straight into the two new ones.
+                var a = new T[plan[0]];
+                var b = new T[plan[1]];
+                var filled = 0;
+                for (var w = 0; w < 3; w++)
+                {
+                    var leaf = AsLeaf(window[w]);
+                    var taken = 0;
+                    if (filled < a.Length)
+                    {
+                        taken = Math.Min(leaf.Len, a.Length - filled);
+                        Array.Copy(leaf.Items, 0, a, filled, taken);
+                        filled += taken;
+                    }
+
+                    var rest = leaf.Len - taken;
+                    if (rest > 0)
+                    {
+                        Array.Copy(leaf.Items, taken, b, filled - a.Length, rest);
+                        filled += rest;
+                    }
+                }
+
+                first = new LeafNode<T>(a, a.Length, OwnerId.None);
+                second = new LeafNode<T>(b, b.Length, OwnerId.None);
+                firstSize = a.Length;
+            }
+            else
+            {
+                var made = ExecuteConcatPlan<T>(window, windowSizes, plan, 2, shift);
+                first = made.Children[0]!;
+                second = made.Children[1]!;
+                firstSize = made.SizeTable![0];
+            }
+
+            var kids = new Node<T>?[len];
+            var table = new int[len];
+            Array.Copy(node.Children, kids, len);
+            Array.Copy(cumulative, table, len);
+            var baseSize = start > 0 ? cumulative[start - 1] : 0;
+            kids[start] = first;
+            kids[start + 1] = second;
+            table[start] = baseSize + firstSize;
+            for (var i = start + 1; i < len; i++) table[i]++;
+
+            return new InsertResult<T>(new InternalNode<T>(kids, table, len, OwnerId.None));
         }
 
-        return SplitInternalNode(internalNode, childIndex, result.NewNode, result.Overflow, shift);
+        // The node takes a child more.
+        var count = len + 1;
+        var children = new Node<T>?[count];
+        var sizesTable = new int[count];
+        Array.Copy(node.Children, 0, children, 0, at);
+        children[at] = left;
+        children[at + 1] = right;
+        Array.Copy(node.Children, at + 1, children, at + 2, len - at - 1);
+        Array.Copy(cumulative, 0, sizesTable, 0, at);
+        sizesTable[at] = before + leftSize;
+        sizesTable[at + 1] = before + leftSize + rightSize;
+        for (var i = at + 1; i < len; i++) sizesTable[i + 1] = cumulative[i] + 1;
+
+        var slots = shift == Constants.RRB_BITS ? sizesTable[count - 1] : SlotsOfChildren(children, count);
+        if (count <= AllowedChildren(slots))
+        {
+            if (count <= Constants.RRB_BRANCHING)
+                return new InsertResult<T>(new InternalNode<T>(children, sizesTable, count, OwnerId.None));
+
+            // A node's worth and one more: halves, so both have room.
+            var mid = count / 2;
+            var leftKids = new Node<T>?[mid];
+            var leftTable = new int[mid];
+            var rightKids = new Node<T>?[count - mid];
+            var rightTable = new int[count - mid];
+            Array.Copy(children, 0, leftKids, 0, mid);
+            Array.Copy(sizesTable, 0, leftTable, 0, mid);
+            Array.Copy(children, mid, rightKids, 0, count - mid);
+            var cut = sizesTable[mid - 1];
+            for (var i = mid; i < count; i++) rightTable[i - mid] = sizesTable[i] - cut;
+            return new InsertResult<T>(
+                new InternalNode<T>(leftKids, leftTable, mid, OwnerId.None),
+                new InternalNode<T>(rightKids, rightTable, count - mid, OwnerId.None));
+        }
+
+        var sizes = new int[count];
+        for (var i = 0; i < count; i++) sizes[i] = sizesTable[i] - (i > 0 ? sizesTable[i - 1] : 0);
+        return BuildChecked(children, sizes, count, shift);
     }
 
-    private static InsertResult<T> SplitInternalNode<T>(
-        InternalNode<T> node,
-        int splitChildIndex,
-        Node<T> childLeft,
-        Node<T> childRight,
-        int shift)
+    // The cumulative size table of a dense node at `shift`, worked out: every
+    // child but the last is full.
+    private static int[] DenseTable<T>(InternalNode<T> node, int shift)
     {
-        // Total virtual children = 32 (existing) - 1 (replaced) + 2 (new) = 33.
-        const int splitPoint = 16;
-        const int rightLen = 17; // 33 - 16
-
-        var leftChildren = new Node<T>?[splitPoint];
-        var rightChildren = new Node<T>?[rightLen];
-
-        // Helper to get from the logical sequence of 33
-        Node<T> GetVirtualChild(int i)
-        {
-            if (i < splitChildIndex) return node.Children[i]!;
-            if (i == splitChildIndex) return childLeft;
-            if (i == splitChildIndex + 1) return childRight;
-            return node.Children[i - 1]!;
-        }
-
-        for (var i = 0; i < splitPoint; i++) leftChildren[i] = GetVirtualChild(i);
-        for (var i = 0; i < rightLen; i++) rightChildren[i] = GetVirtualChild(splitPoint + i);
-
-        var leftTable = new int[splitPoint];
-        var rightTable = new int[rightLen];
-        var childShift = shift - Constants.RRB_BITS;
-
-        // Recalculate all sizes. 
-        // This is safer than trying to reuse parts of the old table because 
-        // splitting Dense nodes creates complex offset shifts.
-
-        var cumulative = 0;
-
-        // Fill Left
-        for (var i = 0; i < splitPoint; i++)
-        {
-            // Re-use logic: Measure new nodes, assume blocksize for others (unless table exists)
-            var virtualIdx = i;
-            var size = GetVirtualChildSize(node, virtualIdx, splitChildIndex, childLeft, childRight, childShift);
-            cumulative += size;
-            leftTable[i] = cumulative;
-        }
-
-        // Fill Right (Reset cumulative)
-        cumulative = 0;
-        for (var i = 0; i < rightLen; i++)
-        {
-            var virtualIdx = splitPoint + i;
-            var size = GetVirtualChildSize(node, virtualIdx, splitChildIndex, childLeft, childRight, childShift);
-            cumulative += size;
-            rightTable[i] = cumulative;
-        }
-
-        var newLeft = new InternalNode<T>(leftChildren, leftTable, splitPoint, OwnerId.None);
-        var newRight = new InternalNode<T>(rightChildren, rightTable, rightLen, OwnerId.None);
-
-        return new InsertResult<T>(newLeft, newRight);
+        var len = node.Len;
+        var table = new int[len];
+        for (var i = 0; i < len - 1; i++) table[i] = (i + 1) << shift;
+        table[len - 1] = ((len - 1) << shift) + CountTree(node.Children[len - 1]!, shift - Constants.RRB_BITS);
+        return table;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetVirtualChildSize<T>(
-        InternalNode<T> originalNode,
-        int virtualIndex,
-        int splitIndex,
-        Node<T> newLeft,
-        Node<T> newRight,
-        int childShift)
+    // The slots the first `count` children of a node above the leaf parents
+    // hold between them.
+    private static int SlotsOfChildren<T>(Node<T>?[] children, int count)
     {
-        if (virtualIndex == splitIndex) return CountTree(newLeft, childShift);
-        if (virtualIndex == splitIndex + 1) return CountTree(newRight, childShift);
+        var slots = 0;
+        for (var i = 0; i < count; i++) slots += children[i]!.Len;
+        return slots;
+    }
 
-        var originalIndex = virtualIndex < splitIndex ? virtualIndex : virtualIndex - 1;
-
-        if (originalNode.SizeTable != null)
+    // The children of a node at `shift` after a remove below it, when they
+    // break the invariant: the child at `at` merges with a neighbour it fits
+    // in, and failing that they are repacked.
+    private static Node<T> RepairAfterRemove<T>(Node<T>?[] children, int[] sizes, int count, int at, int shift)
+    {
+        if (at >= 0)
         {
-            var prev = originalIndex > 0 ? originalNode.SizeTable[originalIndex - 1] : 0;
-            return originalNode.SizeTable[originalIndex] - prev;
+            var own = children[at]!.Len;
+            var leftLen = at > 0 ? children[at - 1]!.Len : int.MaxValue;
+            var rightLen = at + 1 < count ? children[at + 1]!.Len : int.MaxValue;
+            var with = leftLen <= rightLen ? at - 1 : at + 1;
+            var other = Math.Min(leftLen, rightLen);
+
+            if (other != int.MaxValue && own + other <= Constants.RRB_BRANCHING)
+            {
+                Span<int> plan = stackalloc int[1];
+                plan[0] = own + other;
+                count = Reshape(children, sizes, count, Math.Min(at, with), 2, plan, shift);
+            }
         }
 
-        // Dense assumption
-        if (originalIndex == originalNode.Len - 1)
-            return CountTree(originalNode.Children[originalIndex]!, childShift);
-
-        return 1 << (childShift + Constants.RRB_BITS);
+        return BuildChecked(children, sizes, count, shift).NewNode;
     }
 
     // Helper return struct to avoid Tuple allocation

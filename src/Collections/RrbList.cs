@@ -971,6 +971,88 @@ public sealed partial class RrbList<T>
             throw new Exception($"Integrity Error: Tail array size {Tail.Length} < TailLen {TailLen}");
     }
 
+    /**
+     * <summary>
+     *     Verifies the search step invariant at every internal node, and throws when a node breaks it.
+     *     A node may have at most <c>RRB_EXTRAS</c> more children than the fewest that could hold
+     *     what its children hold, which is what bounds how far a relaxed lookup has to search past
+     *     the slot the index points at.
+     * </summary>
+     */
+    public void VerifySearchStep()
+    {
+        if (Root != null) VerifySearchStep(Root, Shift, "root");
+    }
+
+    /**
+     * <summary>
+     *     The furthest a lookup has to walk in any relaxed node, past the child the index points
+     *     at when every child is taken to be full. A lookup in a dense tree walks 0.
+     * </summary>
+     */
+    public int MaxSearchDistance() => Root == null ? 0 : MaxSearchDistance(Root, Shift);
+
+    /**
+     * <summary>
+     *     The tree's height in levels above the leaves, how many leaves and internal nodes it has,
+     *     and the fewest leaves its items would fit in. For watching a tree's shape over time.
+     * </summary>
+     */
+    public (int Height, int Leaves, int Internal, int FewestLeaves) Shape()
+    {
+        if (Root == null) return (0, 0, 0, 0);
+        var leaves = 0;
+        var internalNodes = 0;
+        CountShape(Root, Shift, ref leaves, ref internalNodes);
+        var treeItems = Count - TailLen;
+        return (Shift / Constants.RRB_BITS, leaves, internalNodes, (treeItems + Constants.RRB_BRANCHING - 1) / Constants.RRB_BRANCHING);
+    }
+
+    private static void CountShape(Node<T> node, int shift, ref int leaves, ref int internalNodes)
+    {
+        if (shift == 0)
+        {
+            leaves++;
+            return;
+        }
+
+        internalNodes++;
+        var inode = (InternalNode<T>)node;
+        for (var i = 0; i < inode.Len; i++) CountShape(inode.Children[i]!, shift - Constants.RRB_BITS, ref leaves, ref internalNodes);
+    }
+
+    private static int MaxSearchDistance(Node<T> node, int shift)
+    {
+        if (shift == 0) return 0;
+
+        var inode = (InternalNode<T>)node;
+        var worst = 0;
+        if (inode.SizeTable != null)
+            for (var i = 1; i < inode.Len; i++)
+                worst = Math.Max(worst, i - (inode.SizeTable[i - 1] >> shift));
+
+        for (var i = 0; i < inode.Len; i++)
+            worst = Math.Max(worst, MaxSearchDistance(inode.Children[i]!, shift - Constants.RRB_BITS));
+        return worst;
+    }
+
+    private static void VerifySearchStep(Node<T> node, int shift, string path)
+    {
+        if (shift == 0) return;
+
+        var inode = (InternalNode<T>)node;
+        var slots = 0;
+        for (var i = 0; i < inode.Len; i++) slots += inode.Children[i]!.Len;
+
+        var allowed = RrbAlgorithm.AllowedChildren(slots);
+        if (inode.Len > allowed)
+            throw new Exception(
+                $"Search step violated at {path} (shift {shift}): {inode.Len} children holding {slots}, at most {allowed} allowed.");
+
+        for (var i = 0; i < inode.Len; i++)
+            VerifySearchStep(inode.Children[i]!, shift - Constants.RRB_BITS, $"{path}/{i}");
+    }
+
     private int CountNode(Node<T> node, int shift)
     {
         if (shift == 0) return node.Len;
