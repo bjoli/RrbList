@@ -1893,6 +1893,56 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
         return BuildChecked(children, sizes, count, shift);
     }
 
+    // A root at most a level taller than the `treeItems` under it need. A root
+    // with one child gives way to the child, which every slice already did.
+    // Past that, a tree more than a level too tall is lowered while the root's
+    // grandchildren fit in one node: they become the children of a new root
+    // one level down. That is the root a slice leaves with two thin spines
+    // under it, and the one a remove leaves when most of the list has gone.
+    // Each step copies at most a node's worth of children, and a tree within
+    // a level of its height is left as it is, which is the usual case.
+    internal static Node<T>? LowerRoot<T>(Node<T>? root, ref int shift, int treeItems)
+    {
+        var least = 0;
+        for (var capacity = (long)Constants.RRB_BRANCHING; capacity < treeItems; capacity <<= Constants.RRB_BITS)
+            least++;
+
+        while (root != null && shift > 0)
+        {
+            var node = AsInternal(root);
+            if (node.Len == 1)
+            {
+                root = node.Children[0];
+                shift -= Constants.RRB_BITS;
+                continue;
+            }
+
+            if (shift == Constants.RRB_BITS || shift / Constants.RRB_BITS <= least + 1) break;
+
+            var total = SlotsOfChildren(node.Children, node.Len);
+            if (total > Constants.RRB_BRANCHING) break;
+
+            var childShift = shift - Constants.RRB_BITS;
+            var grandchildren = new Node<T>?[total];
+            var sizes = new int[total];
+            var k = 0;
+            for (var i = 0; i < node.Len; i++)
+            {
+                var child = AsInternal(node.Children[i]!);
+                for (var j = 0; j < child.Len; j++)
+                {
+                    grandchildren[k] = child.Children[j];
+                    sizes[k++] = ChildSize(child, j, childShift);
+                }
+            }
+
+            root = BuildChecked(grandchildren, sizes, total, childShift).NewNode;
+            shift = childShift;
+        }
+
+        return root;
+    }
+
     // The cumulative size table of a dense node at `shift`, worked out: every
     // child but the last is full.
     private static int[] DenseTable<T>(InternalNode<T> node, int shift)

@@ -159,4 +159,34 @@ public class RegressionTests
 
         AssertSame(expected, list);
     }
+
+    // A piece cut from a large list, by slicing, splitting or removing, is at
+    // most a level taller than its own items need. Cut across a boundary
+    // high in the tree, the root is left with two thin spines under it.
+    [TestCase(1_000_000, 32_500, 700)]
+    [TestCase(1_000_000, 524_200, 300)]
+    [TestCase(1_000_000, 1000, 100)]
+    [TestCase(40_000, 32_700, 100)]
+    public void Pieces_ShedTheHeightOfWhatTheyWereCutFrom(int size, int start, int count)
+    {
+        var expected = Enumerable.Range(0, size).ToList();
+        var list = RrbList<int>.Create(expected);
+
+        var slice = list.Slice(start, count);
+        AssertSame(expected.GetRange(start, count), slice);
+        DifferentialFuzz.CheckWear(slice, "Slice");
+
+        var (_, right) = list.Split(start);
+        var (piece, _) = right.Split(count);
+        AssertSame(expected.GetRange(start, count), piece);
+        DifferentialFuzz.CheckWear(piece, "Split");
+
+        var shrunk = list.Slice(0, start + count);
+        for (var i = 0; i < start; i++) shrunk = shrunk.RemoveAt(0);
+        if (start <= 40_000)
+        {
+            AssertSame(expected.GetRange(start, count), shrunk);
+            DifferentialFuzz.CheckWear(shrunk, "RemoveAt");
+        }
+    }
 }

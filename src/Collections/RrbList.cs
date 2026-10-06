@@ -438,13 +438,7 @@ public sealed partial class RrbList<T>
         {
             newRoot = RrbAlgorithm.SliceLeftRec(Root!, start, Shift);
             int tempShift = Shift;
-            
-            // Squash the tree.
-            while (newRoot!.Len == 1 && tempShift > 0)
-            {
-                newRoot = RrbAlgorithm.AsInternal(newRoot).Children[0];
-                tempShift -= Constants.RRB_BITS;
-            }
+            newRoot = RrbAlgorithm.LowerRoot(newRoot, ref tempShift, count - TailLen);
             return new RrbList<T>(newRoot, Tail, count, tempShift, TailLen);
             
         }
@@ -456,12 +450,7 @@ public sealed partial class RrbList<T>
                 out T[] takeTail,
                 out int len);
             int tempShift = Shift;
-            
-            while (takeRoot!.Len == 1 && tempShift > 0)
-            {
-                takeRoot = RrbAlgorithm.AsInternal(takeRoot).Children[0];
-                tempShift -= Constants.RRB_BITS;
-            }
+            takeRoot = RrbAlgorithm.LowerRoot(takeRoot, ref tempShift, count - len);
             return new RrbList<T>(takeRoot,takeTail, count, tempShift, len);
         }
 
@@ -525,6 +514,7 @@ public sealed partial class RrbList<T>
             }
         }
 
+        newRoot = RrbAlgorithm.LowerRoot(newRoot, ref newShift, count - finalTail.Length);
         return new RrbList<T>(newRoot, finalTail, count, newShift, finalTail.Length);
     }
 
@@ -663,18 +653,9 @@ public sealed partial class RrbList<T>
         var leftShift = Shift;
         var rightShift = Shift;
 
-        // Squash single-child roots.
-        while (leftRoot != null && !leftRoot.IsLeaf() && leftRoot.Len == 1 && leftShift > 0)
-        {
-            leftRoot = RrbAlgorithm.AsInternal(leftRoot).Children[0];
-            leftShift -= Constants.RRB_BITS;
-        }
-
-        while (rightRoot != null && !rightRoot.IsLeaf() && rightRoot.Len == 1 && rightShift > 0)
-        {
-            rightRoot = RrbAlgorithm.AsInternal(rightRoot).Children[0];
-            rightShift -= Constants.RRB_BITS;
-        }
+        // Each half is no taller than its items need.
+        leftRoot = RrbAlgorithm.LowerRoot(leftRoot, ref leftShift, index - leftTailLen);
+        rightRoot = RrbAlgorithm.LowerRoot(rightRoot, ref rightShift, Count - index - TailLen);
 
         // Right list reuses the original tail directly.
         return (
@@ -805,16 +786,8 @@ public sealed partial class RrbList<T>
         var newRoot = RrbAlgorithm.RemoveRecursive(Root!, index, Shift);
         var newShift = Shift;
 
-        // Handle Root Collapse (if root became a single child)
-        while (newRoot != null &&
-               newShift > 0 &&
-               newRoot is InternalNode<T> inode &&
-               inode.Len == 1)
-        {
-            // If the root has only 1 child, that child becomes the new root
-            newRoot = inode.Children[0];
-            newShift -= Constants.RRB_BITS;
-        }
+        // The tree is no taller than what is left of it needs.
+        newRoot = RrbAlgorithm.LowerRoot(newRoot, ref newShift, Count - 1 - TailLen);
 
         if (newRoot == null)
             // Tree empty, only tail remains

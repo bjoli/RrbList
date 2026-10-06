@@ -60,6 +60,33 @@ public class SearchStepBench
             for (var i = 0; i < ops / 10; i++) l = l.Merge(piece);
         }, ops / 10);
 
+        var relaxed = afterInserts;
+        var cuts = new (int, int)[ops];
+        for (var i = 0; i < ops; i++)
+        {
+            var s = rng.Next(n);
+            cuts[i] = (s, rng.Next(n - s));
+        }
+
+        var slice = Time(() =>
+        {
+            for (var i = 0; i < ops; i++) _ = relaxed.Slice(cuts[i].Item1, cuts[i].Item2);
+        }, ops);
+
+        var smallSlice = Time(() =>
+        {
+            for (var i = 0; i < ops; i++) _ = relaxed.Slice(cuts[i].Item1, 100 + cuts[i].Item2 % 2000);
+        }, ops);
+
+        var split = Time(() =>
+        {
+            for (var i = 0; i < ops; i++) _ = relaxed.Split(cuts[i].Item1);
+        }, ops);
+
+        Console.WriteLine($"slice, any            {slice,8:F1} ns");
+        Console.WriteLine($"slice, 100-2100       {smallSlice,8:F1} ns");
+        Console.WriteLine($"split                 {split,8:F1} ns");
+
         double Lookups(RrbList<int> l) => Time(() =>
         {
             long sum = 0;

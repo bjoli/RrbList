@@ -35,19 +35,17 @@ public class DifferentialFuzz
     }
 
     // The tree has not worn down, whatever was done to it: a lookup's search
-    // stays inside one AVX window, and its leaves are not much emptier than
-    // they need be.
-    //
-    // Height is not checked. A slice keeps the height of the tree it was cut
-    // from, so a list that was once large stays a level or two taller than its
-    // items need. That costs a pointer hop per level, and the height never
-    // grows past what the largest the list has been needed.
+    // stays inside one AVX window, the tree is at most a level taller than its
+    // items need, and its leaves are not much emptier than they need be.
     internal static void CheckWear(RrbList<int> actual, string what)
     {
         var walk = actual.MaxSearchDistance();
         if (walk > 8) throw new Exception($"{what}: a lookup walks {walk} slots");
 
-        var (_, leaves, _, fewest) = actual.Shape();
+        var (height, leaves, _, fewest) = actual.Shape();
+        var least = 0;
+        for (var cap = 1L; cap < fewest; cap *= 32) least++;
+        if (height > least + 1) throw new Exception($"{what}: height {height}, where {least} would do");
         if (leaves > fewest + fewest / 4 + 4)
             throw new Exception($"{what}: {leaves} leaves, where {fewest} would do");
     }
