@@ -156,6 +156,8 @@ public class RrbBuilder<T>
             {
                 var childIdx = (index >> shift) & Constants.RRB_MASK;
                 node = inode.Children[childIdx]!;
+                // A relaxed node further down takes an index relative to itself.
+                index -= childIdx << shift;
             }
             shift -= Constants.RRB_BITS;
         }
@@ -446,43 +448,45 @@ public class RrbBuilder<T>
         
         if (_shift == 0)
         {
-            var newRoot = new InternalNode<T>(Constants.RRB_BRANCHING, _token);
-            newRoot.Children[0] = _root;
-            newRoot.Len = 1; 
-            _root = newRoot;
+            _root = NewParent(_root, _rootCount);
             _shift = Constants.RRB_BITS;
         }
         
         while (globalLeafCursor < _totalLeaves)
         {
             var rootInternal = RrbAlgorithm.AsInternal(_root).EnsureEditable(_token);
-            _root = rootInternal;
-
-            FillRightSpine(rootInternal, _shift, ref globalLeafCursor);
+            _root = FillRightSpine(rootInternal, _shift, ref globalLeafCursor);
 
             if (globalLeafCursor < _totalLeaves)
             {
-                var newRoot = new InternalNode<T>(Constants.RRB_BRANCHING, _token);
-                newRoot.Children[0] = _root;
-                newRoot.Len = 1;
-                
-                if (_root.IsRelaxed())
-                {
-                    var oldRootInternal = RrbAlgorithm.AsInternal(_root);
-                    var oldSize = oldRootInternal.SizeTable![oldRootInternal.Len - 1];
-                    var newTable = new int[Constants.RRB_BRANCHING];
-                    newTable[0] = oldSize;
-                    newRoot = new InternalNode<T>(newRoot.Children, newTable, 1, _token);
-                }
-                
-                _root = newRoot;
+                _root = NewParent(_root, _rootCount);
                 _shift += Constants.RRB_BITS;
             }
         }
     }
 
+    // A one-child parent for `child`, which holds `size` items. Siblings will
+    // follow it, so it needs a size table unless it is dense and full.
+    private InternalNode<T> NewParent(Node<T> child, int size)
+    {
+        var children = new Node<T>?[Constants.RRB_BRANCHING];
+        children[0] = child;
+
+        int[]? table = null;
+        if (child.IsRelaxed() || size != 1 << (_shift + Constants.RRB_BITS))
+        {
+            table = new int[Constants.RRB_BRANCHING];
+            table[0] = size;
+        }
+
+        return new InternalNode<T>(children, table, 1, _token);
+    }
+
+    // Appends pending leaves under `node`, which must be editable. Returns the
+    // node, or a relaxed copy of it when a dense node would otherwise get a
+    // part-full child before another child or a relaxed child.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private void FillRightSpine(InternalNode<T> node, int shift, ref int globalCursor)
+    private InternalNode<T> FillRightSpine(InternalNode<T> node, int shift, ref int globalCursor)
     {
         // 1. FILL EXISTING LAST CHILD
         if (node.Len > 0 && shift > Constants.RRB_BITS)
@@ -492,29 +496,39 @@ public class RrbBuilder<T>
             
             //  Manual Owner Check to skip EnsureEditable call overhead
             if (lastChild.Owner != _token)
-            {
                 lastChild = lastChild.EnsureEditable(_token, expand: true);
-                node.Children[lastIdx] = lastChild;
-            }
             
             int cursorBefore = globalCursor;
-            FillRightSpine(lastChild, shift - Constants.RRB_BITS, ref globalCursor);
+            lastChild = FillRightSpine(lastChild, shift - Constants.RRB_BITS, ref globalCursor);
+            node.Children[lastIdx] = lastChild;
             int leavesConsumed = globalCursor - cursorBefore;
             
-            if (leavesConsumed > 0 && node.SizeTable != null)
+            if (node.SizeTable != null)
             {
-                int sizeDelta = leavesConsumed * Constants.RRB_BRANCHING;
-                node.SizeTable[lastIdx] += sizeDelta;
+                node.SizeTable[lastIdx] += leavesConsumed * Constants.RRB_BRANCHING;
+            }
+            else if (lastChild.IsRelaxed() ||
+                     (globalCursor < _totalLeaves &&
+                      RrbAlgorithm.CountTree(lastChild, shift - Constants.RRB_BITS) != 1 << shift))
+            {
+                // Dense indexing does not look at size tables below it, and
+                // assumes every child but the last is full.
+                node = RrbAlgorithm.CreateRelaxedNodeFromDense(node, _token, shift);
             }
         }
         
-        if (globalCursor >= _totalLeaves) return;
+        if (globalCursor >= _totalLeaves) return node;
 
         // 2. FILL NEW SIBLINGS
         
         // A. BOTTOM LEVEL (Shift 5) - Array.Copy Optimization
         if (shift == Constants.RRB_BITS)
         {
+            // Full leaves after a part-full one need a size table.
+            if (node.IsDense() && node.Len > 0 && node.Len < Constants.RRB_BRANCHING &&
+                node.Children[node.Len - 1]!.Len < Constants.RRB_BRANCHING)
+                node = RrbAlgorithm.CreateRelaxedNodeFromDense(node, _token, shift);
+
             int spaceRemaining = Constants.RRB_BRANCHING - node.Len;
             int leavesAvailable = _totalLeaves - globalCursor;
             int countToCopy = Math.Min(spaceRemaining, leavesAvailable);
@@ -567,7 +581,7 @@ public class RrbBuilder<T>
             node.Len += (byte)countToCopy;
             globalCursor += countToCopy;
             _rootCount += countToCopy * Constants.RRB_BRANCHING;
-            return;
+            return node;
         }
 
         // B. INTERNAL LEVELS (Shift > 5)
@@ -579,7 +593,7 @@ public class RrbBuilder<T>
             newSibling.Len = 0;
             
             int cursorBefore = globalCursor;
-            FillRightSpine(newSibling, childShift, ref globalCursor);
+            newSibling = FillRightSpine(newSibling, childShift, ref globalCursor);
             int leavesConsumed = globalCursor - cursorBefore;
             
             int addedSize = leavesConsumed * Constants.RRB_BRANCHING;
@@ -595,5 +609,7 @@ public class RrbBuilder<T>
 
             node.Len++;
         }
+
+        return node;
     }
 }

@@ -457,7 +457,7 @@ public sealed partial class RrbList<T>
                 out int len);
             int tempShift = Shift;
             
-            while (takeRoot!.Len == 1 && tempShift < 0)
+            while (takeRoot!.Len == 1 && tempShift > 0)
             {
                 takeRoot = RrbAlgorithm.AsInternal(takeRoot).Children[0];
                 tempShift -= Constants.RRB_BITS;
@@ -946,7 +946,7 @@ public sealed partial class RrbList<T>
     {
         if (Count == 0) throw new InvalidOperationException("List is empty");
 
-        return Slice(1, Count);
+        return Slice(1, Count - 1);
     }
 
     /**
@@ -1023,6 +1023,10 @@ public sealed partial class RrbList<T>
             }
             else
             {
+                // Indexing does not look for size tables below a balanced node.
+                if (child.IsRelaxed())
+                    throw new Exception($"Integrity Error: Balanced node has relaxed child at index {i}");
+
                 // Verify Balanced Invariant
                 // All children except the last must be full
                 var capacity = 1 << shift;

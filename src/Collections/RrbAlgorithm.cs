@@ -1071,6 +1071,10 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
                 // Update metadata (SizeTable) ONLY if necessary
                 if (editable.IsRelaxed())
                     editable.SizeTable![lastIdx] += tail.Len;
+                else if (newLastChild.IsRelaxed())
+                    // A relaxed child needs a relaxed parent. The table is
+                    // built from the updated child.
+                    editable = CreateRelaxedNodeFromDense(editable, token, shift);
 
                 return editable;
             }
@@ -1090,9 +1094,9 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
     {
         // Check if appending this child violates the Dense Invariant.
         // Violation happens if we are currently Dense, but the LAST child is not full.
-        var requiresRelaxation = false;
+        var requiresRelaxation = node.IsDense() && childToAdd.IsRelaxed();
 
-        if (node.IsDense() && node.Len > 0)
+        if (!requiresRelaxation && node.IsDense() && node.Len > 0)
         {
             // We only strictly need to check this at the leaf-parent level (Shift 5)
             // or if we trust that higher levels handle their own density.
@@ -1141,7 +1145,7 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
     }
 
 
-    private static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> node, OwnerId token, int shift)
+    internal static InternalNode<T> CreateRelaxedNodeFromDense<T>(InternalNode<T> node, OwnerId token, int shift)
     {
         // 1. Determine Capacity
         // If we have an Owner (Transient), we go full capacity (32).
@@ -1249,35 +1253,11 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
         // Base Case: Leaf
         if (shift == 0) return tail;
 
-        // Recursive Step
+        // Every node on the path is dense: its only child is its last, which
+        // may be part-full. A size table here would put a relaxed node under
+        // a dense parent, which dense indexing does not look for. AppendChild
+        // relaxes a node once a sibling follows a part-full child.
         var child = CreatePath(shift - Constants.RRB_BITS, tail, token);
-
-        // --- Validation Logic ---
-        // A node MUST be Relaxed if:
-        // 1. The child itself is Relaxed (Relaxation bubbles up).
-        // 2. The child is not physically full (Violates strict Dense invariant).
-
-        var childIsRelaxed = child.IsRelaxed();
-
-        // Calculate if strictly full (1 << shift items)
-        // Since this is a single path, the total size is just the tail length.
-        // (Optimization: We can check tail.Len directly against the shift capacity)
-        var isFull = tail.Len == 1 << shift;
-
-        if (childIsRelaxed || !isFull)
-        {
-            // Create Relaxed Parent
-            var children = new Node<T>?[!token.IsNone ? Constants.RRB_BRANCHING : 1];
-            children[0] = child;
-
-            var sizeTable = new int[children.Length];
-            sizeTable[0] = tail.Len; // The total size is just the tail
-
-            return new InternalNode<T>(children, sizeTable, 1, token);
-        }
-
-        // Create Dense Parent
-        // Only allowed if child is NOT relaxed AND we are strictly full.
         var node = new InternalNode<T>(1, token);
         node.Children[0] = child;
         return node;
