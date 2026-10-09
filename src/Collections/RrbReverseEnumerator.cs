@@ -23,8 +23,11 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
     /// the stack rather than advance one that was never built.
     private bool _inTree;
 
-    private readonly Node<T>?[] _path;
-    private readonly int[] _pathIndexes;
+    // Inline buffers, as in RrbEnumerator, so that constructing a walk
+    // allocates nothing. A walk of a short vec never enters the tree, and two
+    // heap arrays per walk were most of what such a walk cost.
+    private EnumeratorPathBuffer<T> _path;
+    private EnumeratorIndexBuffer _pathIndexes;
     private int _depth;
 
     public RrbReverseEnumerator<T> GetEnumerator()
@@ -64,9 +67,6 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         _leafIndex = -2; // Sentinel
         _leafFloor = 0;
         _inTree = false;
-
-        _path = new Node<T>?[Constants.RRB_MAX_HEIGHT + 1];
-        _pathIndexes = new int[Constants.RRB_MAX_HEIGHT + 1];
         _depth = 0;
     }
 
