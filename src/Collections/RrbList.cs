@@ -198,6 +198,57 @@ public sealed partial class RrbList<T>
         }
     }
 
+    /// <summary>
+    ///     The leaf array that holds element <paramref name="index"/>.
+    /// </summary>
+    /// <remarks>
+    ///     The elements of a leaf are consecutive elements of the list, so a walk
+    ///     can read a leaf as an array and look up only the next one: for
+    ///     <paramref name="index"/> at <paramref name="position"/> in the array,
+    ///     the elements from <c>index - position</c> to
+    ///     <c>index - position + length - 1</c> are <c>items[0]</c> to
+    ///     <c>items[length - 1]</c>. The array may be longer than
+    ///     <paramref name="length"/>, and it is shared with the list, so the caller
+    ///     must not change it.
+    /// </remarks>
+    public T[] LeafAt(int index, out int position, out int length)
+    {
+        if ((uint)index >= (uint)Count) throw new IndexOutOfRangeException();
+
+        var tailOffset = Count - TailLen;
+        if (index >= tailOffset)
+        {
+            position = index - tailOffset;
+            length = TailLen;
+            return Tail;
+        }
+
+        var node = Root!;
+        var shift = Shift;
+
+        while (shift > 0 && node.IsRelaxed())
+        {
+            var internalNode = RrbAlgorithm.AsInternal(node);
+            var (childIndex, relativeIndex) = RrbAlgorithm.GetRelaxedIndex(internalNode, index, shift);
+
+            node = internalNode.Children[childIndex]!;
+            index = relativeIndex;
+            shift -= Constants.RRB_BITS;
+        }
+
+        while (shift > 0)
+        {
+            var childIndex = (index >> shift) & Constants.RRB_MASK;
+            node = RrbAlgorithm.AsInternal(node).Children[childIndex]!;
+            shift -= Constants.RRB_BITS;
+        }
+
+        var leaf = RrbAlgorithm.AsLeaf(node);
+        position = index & Constants.RRB_MASK;
+        length = leaf.Len;
+        return leaf.Items;
+    }
+
     /**
      * <summary>
      *     Copies a range of elements from the RrbList to a compatible one-dimensional array.
