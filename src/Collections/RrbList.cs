@@ -211,6 +211,9 @@ public sealed partial class RrbList<T>
     ///     <paramref name="length"/>, and it is shared with the list, so the caller
     ///     must not change it.
     /// </remarks>
+    // The tail case is inlined, and the descent of the tree is a call: a walk of
+    // a short vec, which is all tail, then looks up its leaf with no call.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public T[] LeafAt(int index, out int position, out int length)
     {
         if ((uint)index >= (uint)Count) throw new IndexOutOfRangeException();
@@ -223,6 +226,12 @@ public sealed partial class RrbList<T>
             return Tail;
         }
 
+        return TreeLeafAt(index, out position, out length);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private T[] TreeLeafAt(int index, out int position, out int length)
+    {
         var node = Root!;
         var shift = Shift;
 
