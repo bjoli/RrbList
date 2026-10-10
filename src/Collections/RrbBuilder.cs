@@ -36,11 +36,39 @@ public class RrbBuilder<T>
     
     private OwnerId _token;
 
+    // A small builder starts its tail at FirstSmallTail items and doubles it up
+    // to a leaf, where a builder by default takes a leaf's worth at the first
+    // item. A vec of 4, 8, 16 or 32 is then handed its tail with no copy, and a
+    // smaller one copies from a short tail rather than from a leaf.
+    private readonly bool _small;
+    private const int FirstSmallTail = 4;
+
+    // The token a builder owns its nodes by. Taken at the first node rather than
+    // when the builder is made: a builder that only ever fills its tail, which
+    // is what most builders are, never needs one, and taking one reads
+    // thread-local state.
+    private OwnerId Token
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get
+        {
+            if (_token == OwnerId.None) _token = OwnerId.Next();
+            return _token;
+        }
+    }
+
     public RrbBuilder()
     {
-        _token = OwnerId.Next();
         _currentTail = Array.Empty<T>();
     }
+
+    private RrbBuilder(bool small) : this()
+    {
+        _small = small;
+    }
+
+    /// A builder for a vec that is likely small. See `_small`.
+    public static RrbBuilder<T> Small() => new RrbBuilder<T>(small: true);
 
     internal RrbBuilder(RrbList<T> list)
     {
@@ -170,7 +198,7 @@ public class RrbBuilder<T>
 
          if (index < _rootCount)
          {
-             _root = RrbAlgorithm.Update(_root!, index, value, _shift, _token);
+             _root = RrbAlgorithm.Update(_root!, index, value, _shift, Token);
              return;
          }
 
@@ -186,7 +214,7 @@ public class RrbBuilder<T>
              int idxInChunk = globalLeafIdx % ChunkSize;
              var leaf = targetChunk[idxInChunk];
 
-             if (leaf.Owner != _token)
+             if (leaf.Owner != Token)
              {
                  leaf = leaf.CloneAndSet(itemIdx, value);
                  targetChunk[idxInChunk] = leaf;
@@ -232,8 +260,12 @@ public class RrbBuilder<T>
             return;
         }
 
-        // There is no tail yet, or it is a list's, exactly as long as it is.
-        UnshareTail(Constants.RRB_BRANCHING);
+        // There is no tail yet, it is a list's, exactly as long as it is, or it
+        // is a small builder's, which grows.
+        var capacity = _small
+            ? Math.Min(Math.Max(FirstSmallTail, _currentTailLen * 2), Constants.RRB_BRANCHING)
+            : Constants.RRB_BRANCHING;
+        UnshareTail(capacity);
         _currentTail[_currentTailLen++] = item;
     }
 
@@ -251,7 +283,7 @@ public class RrbBuilder<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void PushTailAsLeaf()
     {
-        var owner = _tailShared ? OwnerId.None : _token;
+        var owner = _tailShared ? OwnerId.None : Token;
         AddLeaf(new LeafNode<T>(_currentTail, Constants.RRB_BRANCHING, owner));
         _tailShared = false;
     }
@@ -288,7 +320,7 @@ public class RrbBuilder<T>
 
         // The chunk, its index and the token are kept in locals, and put back
         // only around the call that finds a new chunk.
-        var token = _token;
+        var token = Token;
         var chunk = _currentChunk!;
         var index = _chunkIndex;
         var added = 0;
@@ -405,13 +437,13 @@ public class RrbBuilder<T>
         }
 
         var frozenRoot = _root;
-        if (frozenRoot is InternalNode<T> inode) frozenRoot = inode.Freeze(_token);
-        else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze(_token);
+        if (frozenRoot is InternalNode<T> inode) frozenRoot = inode.Freeze(Token);
+        else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze(Token);
         
         var finalTail = TakeTail();
         var totalCount = _rootCount + _currentTailLen;
         
-        _token = OwnerId.Next();
+        _token = OwnerId.None;
         _root = frozenRoot;
         
         return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length);
@@ -454,7 +486,7 @@ public class RrbBuilder<T>
         
         while (globalLeafCursor < _totalLeaves)
         {
-            var rootInternal = RrbAlgorithm.AsInternal(_root).EnsureEditable(_token);
+            var rootInternal = RrbAlgorithm.AsInternal(_root).EnsureEditable(Token);
             _root = FillRightSpine(rootInternal, _shift, ref globalLeafCursor);
 
             if (globalLeafCursor < _totalLeaves)
@@ -479,7 +511,7 @@ public class RrbBuilder<T>
             table[0] = size;
         }
 
-        return new InternalNode<T>(children, table, 1, _token);
+        return new InternalNode<T>(children, table, 1, Token);
     }
 
     // Appends pending leaves under `node`, which must be editable. Returns the
@@ -495,8 +527,8 @@ public class RrbBuilder<T>
             InternalNode<T> lastChild = RrbAlgorithm.AsInternal(node.Children[lastIdx]!);
             
             //  Manual Owner Check to skip EnsureEditable call overhead
-            if (lastChild.Owner != _token)
-                lastChild = lastChild.EnsureEditable(_token, expand: true);
+            if (lastChild.Owner != Token)
+                lastChild = lastChild.EnsureEditable(Token, expand: true);
             
             int cursorBefore = globalCursor;
             lastChild = FillRightSpine(lastChild, shift - Constants.RRB_BITS, ref globalCursor);
@@ -513,7 +545,7 @@ public class RrbBuilder<T>
             {
                 // Dense indexing does not look at size tables below it, and
                 // assumes every child but the last is full.
-                node = RrbAlgorithm.CreateRelaxedNodeFromDense(node, _token, shift);
+                node = RrbAlgorithm.CreateRelaxedNodeFromDense(node, Token, shift);
             }
         }
         
@@ -527,7 +559,7 @@ public class RrbBuilder<T>
             // Full leaves after a part-full one need a size table.
             if (node.IsDense() && node.Len > 0 && node.Len < Constants.RRB_BRANCHING &&
                 node.Children[node.Len - 1]!.Len < Constants.RRB_BRANCHING)
-                node = RrbAlgorithm.CreateRelaxedNodeFromDense(node, _token, shift);
+                node = RrbAlgorithm.CreateRelaxedNodeFromDense(node, Token, shift);
 
             int spaceRemaining = Constants.RRB_BRANCHING - node.Len;
             int leavesAvailable = _totalLeaves - globalCursor;
@@ -589,7 +621,7 @@ public class RrbBuilder<T>
         
         while (node.Len < Constants.RRB_BRANCHING && globalCursor < _totalLeaves)
         {
-            var newSibling = new InternalNode<T>(Constants.RRB_BRANCHING, _token);
+            var newSibling = new InternalNode<T>(Constants.RRB_BRANCHING, Token);
             newSibling.Len = 0;
             
             int cursorBefore = globalCursor;
