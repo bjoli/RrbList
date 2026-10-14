@@ -3,6 +3,10 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
+// Pattern matching from the front. The items come from the head when they
+// are there, which is the usual case, and the rest drops them from the head
+// (see DropFront), so a loop of `(a, rest)` matches costs about a PopFirst
+// per step.
 public sealed partial class RrbList<T>
 {
     /// <summary>
@@ -19,24 +23,8 @@ public sealed partial class RrbList<T>
             return;
         }
 
-        item1 = this[0];
-
-        if (Count == 1)
-        {
-            rest = Empty;
-            return;
-        }
-
-        if (Root == null)
-        {
-            var restCount = Count - 1;
-            var newTail = new T[restCount];
-            Array.Copy(Tail, 1, newTail, 0, restCount);
-            rest = new RrbList<T>(null, newTail, restCount, 0, restCount);
-            return;
-        }
-
-        rest = Slice(1, Count - 1);
+        item1 = FrontItem(0);
+        rest = DropFront(1);
     }
 
     /// <summary>
@@ -54,25 +42,9 @@ public sealed partial class RrbList<T>
             return;
         }
 
-        item1 = this[0];
-        item2 = this[1];
-
-        if (Count == 2)
-        {
-            rest = Empty;
-            return;
-        }
-
-        if (Root == null)
-        {
-            var restCount = Count - 2;
-            var newTail = new T[restCount];
-            Array.Copy(Tail, 2, newTail, 0, restCount);
-            rest = new RrbList<T>(null, newTail, restCount, 0, restCount);
-            return;
-        }
-
-        rest = Slice(2, Count - 2);
+        item1 = FrontItem(0);
+        item2 = FrontItem(1);
+        rest = DropFront(2);
     }
 
     /// <summary>
@@ -90,26 +62,10 @@ public sealed partial class RrbList<T>
             return;
         }
 
-        item1 = this[0];
-        item2 = this[1];
-        item3 = this[2];
-
-        if (Count == 3)
-        {
-            rest = Empty;
-            return;
-        }
-
-        if (Root == null)
-        {
-            var restCount = Count - 3;
-            var newTail = new T[restCount];
-            Array.Copy(Tail, 3, newTail, 0, restCount);
-            rest = new RrbList<T>(null, newTail, restCount, 0, restCount);
-            return;
-        }
-
-        rest = Slice(3, Count - 3);
+        item1 = FrontItem(0);
+        item2 = FrontItem(1);
+        item3 = FrontItem(2);
+        rest = DropFront(3);
     }
 
     /// <summary>
@@ -128,27 +84,11 @@ public sealed partial class RrbList<T>
             return;
         }
 
-        item1 = this[0];
-        item2 = this[1];
-        item3 = this[2];
-        item4 = this[3];
-
-        if (Count == 4)
-        {
-            rest = Empty;
-            return;
-        }
-
-        if (Root == null)
-        {
-            var restCount = Count - 4;
-            var newTail = new T[restCount];
-            Array.Copy(Tail, 4, newTail, 0, restCount);
-            rest = new RrbList<T>(null, newTail, restCount, 0, restCount);
-            return;
-        }
-
-        rest = Slice(4, Count - 4);
+        item1 = FrontItem(0);
+        item2 = FrontItem(1);
+        item3 = FrontItem(2);
+        item4 = FrontItem(3);
+        rest = DropFront(4);
     }
 
     /// <summary>
@@ -168,28 +108,12 @@ public sealed partial class RrbList<T>
             return;
         }
 
-        item1 = this[0];
-        item2 = this[1];
-        item3 = this[2];
-        item4 = this[3];
-        item5 = this[4];
-
-        if (Count == 5)
-        {
-            rest = Empty;
-            return;
-        }
-
-        if (Root == null)
-        {
-            var restCount = Count - 5;
-            var newTail = new T[restCount];
-            Array.Copy(Tail, 5, newTail, 0, restCount);
-            rest = new RrbList<T>(null, newTail, restCount, 0, restCount);
-            return;
-        }
-
-        rest = Slice(5, Count - 5);
+        item1 = FrontItem(0);
+        item2 = FrontItem(1);
+        item3 = FrontItem(2);
+        item4 = FrontItem(3);
+        item5 = FrontItem(4);
+        rest = DropFront(5);
     }
 
     /// <summary>
@@ -210,28 +134,12 @@ public sealed partial class RrbList<T>
             return;
         }
 
-        item1 = this[0];
-        item2 = this[1];
-        item3 = this[2];
-        item4 = this[3];
-        item5 = this[4];
-        item6 = this[5];
-
-        if (Count == 6)
-        {
-            rest = Empty;
-            return;
-        }
-
-        if (Root == null)
-        {
-            var restCount = Count - 6;
-            var newTail = new T[restCount];
-            Array.Copy(Tail, 6, newTail, 0, restCount);
-            rest = new RrbList<T>(null, newTail, restCount, 0, restCount);
-            return;
-        }
-
-        rest = Slice(6, Count - 6);
+        item1 = FrontItem(0);
+        item2 = FrontItem(1);
+        item3 = FrontItem(2);
+        item4 = FrontItem(3);
+        item5 = FrontItem(4);
+        item6 = FrontItem(5);
+        rest = DropFront(6);
     }
 }

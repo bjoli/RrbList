@@ -11,6 +11,14 @@ public class RrbBuilder<T>
     private Node<T>? _root;
     private int _shift;
     private int _rootCount;
+
+    // The head of the lists the builder makes: items in front of the tree.
+    // The first leaf the builder fills becomes the head when the tree is made,
+    // so that a list from a builder reads its front in one array and the tree
+    // behind it is laid out from its first slot, dense. The array is shared
+    // with the lists made, and copied before it is changed. Null when empty.
+    private T[]? _head;
+    private int _headLen;
     
     // Full leaves wait here until ToImmutable puts them in the tree. Chunks of
     // a fixed size rather than one array that doubles, so that a big vec never
@@ -74,8 +82,10 @@ public class RrbBuilder<T>
     {
         _token = OwnerId.Next();
         _root = list.Root;
-        _rootCount = list.Count - list.TailLen;
+        _rootCount = list.Count - list.TailLen - list.HeadLen;
         _shift = list.Shift;
+        _head = list.Head;
+        _headLen = list.HeadLen;
         
         if (list.TailLen == list.Tail.Length)
         {
@@ -132,12 +142,15 @@ public class RrbBuilder<T>
         return builder.ToImmutable();
     }
 
-    public int Count => _rootCount + (_totalLeaves * Constants.RRB_BRANCHING) + _currentTailLen;
+    public int Count => _headLen + _rootCount + (_totalLeaves * Constants.RRB_BRANCHING) + _currentTailLen;
 
     public T this[int index]
     {
         get
         {
+            if (index < _headLen) return _head![index];
+            index -= _headLen;
+
             if (index < _rootCount)
             {
                 return GetFromTree(_root!, index, _shift);
@@ -195,6 +208,18 @@ public class RrbBuilder<T>
     public void SetItem(int index, T value)
     {
          if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
+
+         // The head is shared with the lists made, so it is copied first.
+         if (index < _headLen)
+         {
+             var head = new T[_headLen];
+             Array.Copy(_head!, head, _headLen);
+             head[index] = value;
+             _head = head;
+             return;
+         }
+
+         index -= _headLen;
 
          if (index < _rootCount)
          {
@@ -441,12 +466,12 @@ public class RrbBuilder<T>
         else if (frozenRoot is LeafNode<T> lnode) frozenRoot = lnode.Freeze(Token);
         
         var finalTail = TakeTail();
-        var totalCount = _rootCount + _currentTailLen;
+        var totalCount = _headLen + _rootCount + _currentTailLen;
         
         _token = OwnerId.None;
         _root = frozenRoot;
         
-        return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length);
+        return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length, _head, _headLen);
     }
 
     // The tail for a list: the builder's own when it is exactly as long as its
@@ -472,6 +497,16 @@ public class RrbBuilder<T>
         
         if (_root == null)
         {
+            // The first leaf becomes the head when a tree follows it. The tree
+            // then starts at the second leaf, and is dense. A lone leaf stays
+            // the tree: a list's head needs a tree behind it.
+            if (_totalLeaves >= 2)
+            {
+                var first = GetLeaf(globalLeafCursor++);
+                _head = first.Items.Length == first.Len ? first.Items : first.Items[..first.Len];
+                _headLen = first.Len;
+            }
+
             // Optimization: Directly grab the first leaf
             _root = GetLeaf(globalLeafCursor++);
             _shift = 0;

@@ -23,6 +23,12 @@ public struct RrbEnumerator<T> : IEnumerator<T>
     // --------------------------------------------
 
     private readonly int _startIndex;
+
+    /// Whether the walk has entered the tree. Not `_currentItems == null`: the
+    /// head is items too, and a walk that leaves it for the tree has to *set*
+    /// the stack rather than advance one that was never built.
+    private bool _inTree;
+
     private EnumeratorPathBuffer<T> _path;
     private EnumeratorIndexBuffer _pathIndexes;
     private int _depth;
@@ -55,6 +61,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         _currentItems = null;
         _leafIndex = -1;
         _leafLen = 0;
+        _inTree = false;
         _depth = 0;
     }
 
@@ -87,6 +94,16 @@ public struct RrbEnumerator<T> : IEnumerator<T>
 
         _totalIndex++;
 
+        // 0. Check Head
+        var headLen = _list.HeadLen;
+        if (_totalIndex < headLen)
+        {
+            _currentItems = _list.Head;
+            _leafIndex = _totalIndex;
+            _leafLen = Math.Min(headLen, _endIndex);
+            return true;
+        }
+
         // 1. Check Tail
         var tailOffset = _list.Count - _list.TailLen;
         if (_totalIndex >= tailOffset)
@@ -105,10 +122,15 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         }
 
         // 2. Traverse Tree
-        if (_currentItems == null)
-            SetupStack(_list.Root!, _list.Shift, _totalIndex);
+        if (!_inTree)
+        {
+            SetupStack(_list.Root!, _list.Shift, _totalIndex - headLen);
+            _inTree = true;
+        }
         else
+        {
             AdvanceStack();
+        }
 
         return true;
     }
@@ -221,6 +243,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         _currentItems = null;
         _leafIndex = -1;
         _leafLen = 0;
+        _inTree = false;
         _depth = 0;
     }
 

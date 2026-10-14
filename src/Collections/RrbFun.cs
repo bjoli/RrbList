@@ -22,6 +22,8 @@ public static class RrbFun
     // --- Addition / Insertion / Removal ---
     public static RrbList<T> Add<T>(RrbList<T> list, T item) => list.Add(item);
 
+    public static RrbList<T> Prepend<T>(RrbList<T> list, T item) => list.Prepend(item);
+
     public static RrbList<T> Insert<T>(RrbList<T> list, int index, T item) => list.Insert(index, item);
 
     public static RrbList<T> RemoveAt<T>(RrbList<T> list, int index) => list.RemoveAt(index);

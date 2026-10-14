@@ -30,6 +30,20 @@ public sealed partial class RrbList<T>
     internal readonly T[] Tail;
     internal readonly int TailLen;
 
+    // The head is the tail's mirror: up to a leaf's worth of items in front of
+    // the tree, in order, at Head[0..HeadLen). It makes Prepend and PopFirst
+    // cheap. A list with no tree keeps everything in its tail, so HeadLen is
+    // 0 whenever Root is null. Element i is in the head when i < HeadLen, in
+    // the tail when i >= Count - TailLen, and otherwise at i - HeadLen in the
+    // tree.
+    //
+    // Head is null when HeadLen is 0, which is most lists. The constructors
+    // then never store it: a new object's fields are already null, and a
+    // store of a reference costs a GC write barrier, which on Add and Pop
+    // was most of what the head cost. Read Head only when HeadLen > 0.
+    internal readonly T[]? Head;
+    internal readonly int HeadLen;
+
     internal RrbList(Node<T>? root, T[] tail, int cnt, int shift, int tailLen)
     {
         Root = root;
@@ -38,6 +52,23 @@ public sealed partial class RrbList<T>
         Shift = shift;
         TailLen = tailLen;
     }
+
+    internal RrbList(Node<T>? root, T[] tail, int cnt, int shift, int tailLen, T[]? head, int headLen)
+    {
+        Root = root;
+        Tail = tail;
+        Count = cnt;
+        Shift = shift;
+        TailLen = tailLen;
+        if (headLen != 0)
+        {
+            Head = head;
+            HeadLen = headLen;
+        }
+    }
+
+    // How many items the tree holds.
+    internal int TreeCount => Count - HeadLen - TailLen;
 
     /**
      * <summary>
@@ -70,6 +101,8 @@ public sealed partial class RrbList<T>
             Count = other.Count;
             Shift = other.Shift;
             TailLen = other.TailLen;
+            Head = other.Head;
+            HeadLen = other.HeadLen;
             return;
         }
 
@@ -85,6 +118,8 @@ public sealed partial class RrbList<T>
         Count = temp.Count;
         Shift = temp.Shift;
         TailLen = temp.TailLen;
+        Head = temp.Head;
+        HeadLen = temp.HeadLen;
     }
 
     /**
@@ -171,6 +206,9 @@ public sealed partial class RrbList<T>
             // Direct array access
             if (index >= tailOffset) return Tail[index - tailOffset];
 
+            index -= HeadLen;
+            if (index < 0) return Head![index + HeadLen];
+
             var node = Root!;
             var shift = Shift;
 
@@ -226,7 +264,14 @@ public sealed partial class RrbList<T>
             return Tail;
         }
 
-        return TreeLeafAt(index, out position, out length);
+        if (index < HeadLen)
+        {
+            position = index;
+            length = HeadLen;
+            return Head!;
+        }
+
+        return TreeLeafAt(index - HeadLen, out position, out length);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -272,6 +317,18 @@ public sealed partial class RrbList<T>
             throw new ArgumentException("Destination array is too small.");
         if (count == 0) return;
 
+        // 0. Copy from Head (if the range starts in it)
+        if (sourceIndex < HeadLen)
+        {
+            var itemsFromHead = Math.Min(count, HeadLen - sourceIndex);
+            Array.Copy(Head!, sourceIndex, destination, destinationIndex, itemsFromHead);
+
+            destinationIndex += itemsFromHead;
+            count -= itemsFromHead;
+            sourceIndex += itemsFromHead;
+            if (count == 0) return;
+        }
+
         var tailOffset = Count - TailLen;
 
         // 1. Copy from Tree (if the range starts before the tail)
@@ -280,7 +337,7 @@ public sealed partial class RrbList<T>
             var itemsFromTree = Math.Min(count, tailOffset - sourceIndex);
 
             if (Root != null)
-                CopyRangeNode(Root, Shift, sourceIndex, destination, destinationIndex, itemsFromTree);
+                CopyRangeNode(Root, Shift, sourceIndex - HeadLen, destination, destinationIndex, itemsFromTree);
 
             destinationIndex += itemsFromTree;
             count -= itemsFromTree;
@@ -385,7 +442,7 @@ public sealed partial class RrbList<T>
             Array.Copy(Tail, 0, newTail, 0, TailLen);
             newTail[TailLen] = item;
 
-            return new RrbList<T>(Root, newTail, Count + 1, Shift, TailLen + 1);
+            return new RrbList<T>(Root, newTail, Count + 1, Shift, TailLen + 1, Head, HeadLen);
         }
 
         // Case 2: Tail is full, push to tree
@@ -397,7 +454,7 @@ public sealed partial class RrbList<T>
 
         var newTailArr = new[] { item };
 
-        return new RrbList<T>(newRoot, newTailArr, Count + 1, newShift, 1);
+        return new RrbList<T>(newRoot, newTailArr, Count + 1, newShift, 1, Head, HeadLen);
     }
 
     /**
@@ -419,11 +476,20 @@ public sealed partial class RrbList<T>
             Array.Copy(Tail, 0, newTail, 0, TailLen);
             newTail[index - tailOffset] = value;
 
-            return new RrbList<T>(Root, newTail, Count, Shift, TailLen);
+            return new RrbList<T>(Root, newTail, Count, Shift, TailLen, Head, HeadLen);
         }
 
-        var newRoot = RrbAlgorithm.Update(Root!, index, value, Shift, OwnerId.None);
-        return new RrbList<T>(newRoot, Tail, Count, Shift, TailLen);
+        if (index < HeadLen)
+        {
+            var newHead = new T[HeadLen];
+            Array.Copy(Head!, 0, newHead, 0, HeadLen);
+            newHead[index] = value;
+
+            return new RrbList<T>(Root, Tail, Count, Shift, TailLen, newHead, HeadLen);
+        }
+
+        var newRoot = RrbAlgorithm.Update(Root!, index - HeadLen, value, Shift, OwnerId.None);
+        return new RrbList<T>(newRoot, Tail, Count, Shift, TailLen, Head, HeadLen);
     }
 
 
@@ -478,7 +544,15 @@ public sealed partial class RrbList<T>
             return new RrbList<T>(rootNode, tailItems, count, 0, tailLen);
         }
 
-        // --- 2. General Case ---
+        // --- 2. With a head: slice the rest, and put back what is kept of the head ---
+        if (HeadLen > 0) return SliceWithHead(start, count);
+
+        // --- 3. Dropping at most the first leaf: what is left of it becomes the head ---
+        if (Root != null && start > 0 && start + count == Count &&
+            start <= RrbAlgorithm.FirstLeafLen(Root, Shift))
+            return PromoteFirstLeaf(start);
+
+        // --- 4. General Case ---
         var treeSize = Count - TailLen;
         var treeSliceStart = start;
         var treeSliceEnd = Math.Min(start + count, treeSize);
@@ -605,7 +679,7 @@ public sealed partial class RrbList<T>
                 Array.Copy(Tail, 0, newItems, 0, TailLen);
                 Array.Copy(other.Tail, 0, newItems, TailLen, other.TailLen);
 
-                return new RrbList<T>(Root, newItems, Count + other.Count, Shift, newItems.Length);
+                return new RrbList<T>(Root, newItems, Count + other.Count, Shift, newItems.Length, Head, HeadLen);
             }
 
             // Overflow. Current tail must be pushed into the tree.
@@ -628,37 +702,76 @@ public sealed partial class RrbList<T>
             // AppendLeafToTree safely handles Root being null (promotes leaf to tree logic)
             var newRoot = RrbAlgorithm.AppendLeafToTree(Root, newLeaf, ref newShift, OwnerId.None);
 
-            return new RrbList<T>(newRoot, newTailItems, Count + other.Count, newShift, overflow);
+            return new RrbList<T>(newRoot, newTailItems, Count + other.Count, newShift, overflow, Head, HeadLen);
         }
         
         // Full Merge: Tree + Tree
+        // Our head stays our head, and other's tail stays the tail. What is
+        // between them, our tree, our tail, other's head and other's tree,
+        // becomes one tree.
         var newLeftShift = Shift;
         Node<T>? leftTree = Root;
+        var leftTreeSize = TreeCount;
 
-        // If TailLen is 0, we must not push an empty leaf, as that corrupts the tree structure.
-        if (TailLen > 0)
+        // Our tail and other's head meet at the seam: they go into the left
+        // tree as one leaf when they fit in one, and as a full leaf and the
+        // rest when they do not.
+        // If both are empty, we must not push an empty leaf, as that corrupts the tree structure.
+        var seamLen = TailLen + other.HeadLen;
+        if (seamLen > 0)
         {
-            var tailAsLeaf = new LeafNode<T>(Tail, TailLen, OwnerId.None);
-            leftTree = RrbAlgorithm.AppendLeafToTree(Root, tailAsLeaf, ref newLeftShift, OwnerId.None);
+            T[] seam;
+            if (other.HeadLen == 0)
+            {
+                seam = Tail;
+            }
+            else
+            {
+                seam = new T[seamLen];
+                Array.Copy(Tail, 0, seam, 0, TailLen);
+                Array.Copy(other.Head!, 0, seam, TailLen, other.HeadLen);
+            }
+
+            var firstLen = Math.Min(seamLen, Constants.RRB_BRANCHING);
+            T[] firstItems;
+            if (firstLen == seamLen)
+            {
+                firstItems = seam;
+            }
+            else
+            {
+                firstItems = new T[firstLen];
+                Array.Copy(seam, 0, firstItems, 0, firstLen);
+            }
+
+            leftTree = RrbAlgorithm.AppendLeafToTree(leftTree, new LeafNode<T>(firstItems, firstLen, OwnerId.None),
+                ref newLeftShift, OwnerId.None);
+
+            if (seamLen > firstLen)
+            {
+                var restLen = seamLen - firstLen;
+                var restItems = new T[restLen];
+                Array.Copy(seam, firstLen, restItems, 0, restLen);
+                leftTree = RrbAlgorithm.AppendLeafToTree(leftTree, new LeafNode<T>(restItems, restLen, OwnerId.None),
+                    ref newLeftShift, OwnerId.None);
+            }
+
+            leftTreeSize += seamLen;
         }
 
         // Concat
-        // We can safely assume leftTree is not null here because:
-        // if Count > 0 and TailLen > 0, leftTree is set by AppendLeafToTree.
-        // if Count > 0 and TailLen == 0, Root must be non-null (otherwise Count would be 0).
-        // The left tree size is exactly 'Count' because our tail was just pushed into it.
-        // The right tree size is 'other.Count' minus its tail, which remains unmerged.
-        var rightTreeSize = other.Count - other.TailLen;
-        
+        // leftTree is not null here: if seamLen > 0 it was set by AppendLeafToTree,
+        // and if TailLen == 0, Root must be non-null (otherwise Count would be 0).
+        // The right tree size is other's count without its head and tail.
         var (combinedTree, _) = RrbAlgorithm.Concat(
-            leftTree!, Count, 
-            other.Root!, rightTreeSize, 
+            leftTree!, leftTreeSize, 
+            other.Root!, other.TreeCount, 
             newLeftShift, other.Shift, 
             out var combinedShift
         );
 
         // other.Tail is preserved as the new tail
-        return new RrbList<T>(combinedTree, other.Tail, Count + other.Count, combinedShift, other.TailLen);
+        return new RrbList<T>(combinedTree, other.Tail, Count + other.Count, combinedShift, other.TailLen, Head, HeadLen);
     }
 
 
@@ -675,6 +788,34 @@ public sealed partial class RrbList<T>
 
         if (index == 0) return (Empty, this);
         if (index == Count) return (this, Empty);
+
+        // --- Case 0: There is a head ---
+        if (HeadLen > 0)
+        {
+            // Split within the head (or right after it): the left is all head,
+            // which has no tree and so goes in a tail.
+            if (index <= HeadLen)
+            {
+                var leftItems = new T[index];
+                Array.Copy(Head!, 0, leftItems, 0, index);
+
+                var rightHeadLen = HeadLen - index;
+                var rightHead = Array.Empty<T>();
+                if (rightHeadLen > 0)
+                {
+                    rightHead = new T[rightHeadLen];
+                    Array.Copy(Head!, index, rightHead, 0, rightHeadLen);
+                }
+
+                return (
+                    new RrbList<T>(null, leftItems, index, 0, index),
+                    new RrbList<T>(Root, Tail, Count - index, Shift, TailLen, rightHead, rightHeadLen));
+            }
+
+            // Split the rest, and the head goes back on the left.
+            var (restLeft, restRight) = Headless().Split(index - HeadLen);
+            return (WithHead(Head, HeadLen, restLeft), restRight);
+        }
 
         var treeSize = Count - TailLen;
 
@@ -738,6 +879,31 @@ public sealed partial class RrbList<T>
         // Index is at the very end: delegate to Add
         if (index == Count) return Add(item);
 
+        // Index is at the very start: delegate to Prepend
+        if (index == 0) return Prepend(item);
+
+        // Insert into Head (or right after it)
+        if (index <= HeadLen)
+        {
+            var headItems = new T[HeadLen + 1];
+            Array.Copy(Head!, 0, headItems, 0, index);
+            headItems[index] = item;
+            Array.Copy(Head!, index, headItems, index + 1, HeadLen - index);
+
+            // Head has room (Simple Insert)
+            if (HeadLen < Constants.RRB_BRANCHING)
+                return new RrbList<T>(Root, Tail, Count + 1, Shift, TailLen, headItems, HeadLen + 1);
+
+            // Or: Head is Full. The last leaf's worth goes into the tree, in
+            // front of it, and the first item stays as the head.
+            var promoted = new T[Constants.RRB_BRANCHING];
+            Array.Copy(headItems, 1, promoted, 0, Constants.RRB_BRANCHING);
+
+            var pushShift = Shift;
+            var pushedRoot = PushInFront(Root!, TreeCount, promoted, Constants.RRB_BRANCHING, ref pushShift);
+            return new RrbList<T>(pushedRoot, Tail, Count + 1, pushShift, TailLen, [headItems[0]], 1);
+        }
+
         var tailOffset = Count - TailLen;
 
         // Insert into Tail
@@ -757,7 +923,7 @@ public sealed partial class RrbList<T>
                 if (idxInTail < TailLen)
                     Array.Copy(Tail, idxInTail, newTailItems, idxInTail + 1, TailLen - idxInTail);
 
-                return new RrbList<T>(Root, newTailItems, Count + 1, Shift, TailLen + 1);
+                return new RrbList<T>(Root, newTailItems, Count + 1, Shift, TailLen + 1, Head, HeadLen);
             }
             // Or: Tail is Full (Split & Promote)
             else
@@ -785,12 +951,12 @@ public sealed partial class RrbList<T>
                 var newShift = Shift;
                 var newRoot = RrbAlgorithm.AppendLeafToTree(Root, promotedLeaf, ref newShift, OwnerId.None);
 
-                return new RrbList<T>(newRoot, newTailItems, Count + 1, newShift, 1);
+                return new RrbList<T>(newRoot, newTailItems, Count + 1, newShift, 1, Head, HeadLen);
             }
         }
 
         // Insert into Tree (Recursive)
-        var result = RrbAlgorithm.InsertRecursive(Root!, index, item, Shift, OwnerId.None);
+        var result = RrbAlgorithm.InsertRecursive(Root!, index - HeadLen, item, Shift, OwnerId.None);
 
         var treeRoot = result.NewNode;
         var treeShift = Shift;
@@ -809,7 +975,7 @@ public sealed partial class RrbList<T>
             treeRoot = new InternalNode<T>(children, sizes, 2, OwnerId.None);
         }
 
-        return new RrbList<T>(treeRoot, Tail, Count + 1, treeShift, TailLen);
+        return new RrbList<T>(treeRoot, Tail, Count + 1, treeShift, TailLen, Head, HeadLen);
     }
 
     /**
@@ -822,6 +988,17 @@ public sealed partial class RrbList<T>
     public RrbList<T> RemoveAt(int index)
     {
         if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
+
+        // Simple case: Index is in the Head
+        if (index < HeadLen)
+        {
+            var newHeadLen = HeadLen - 1;
+            var newHeadItems = newHeadLen == 0 ? Array.Empty<T>() : new T[newHeadLen];
+            Array.Copy(Head!, 0, newHeadItems, 0, index);
+            Array.Copy(Head!, index + 1, newHeadItems, index, newHeadLen - index);
+
+            return new RrbList<T>(Root, Tail, Count - 1, Shift, TailLen, newHeadItems, newHeadLen);
+        }
 
         // Simple case: Index is in the Tail
         var tailOffset = Count - TailLen;
@@ -836,24 +1013,24 @@ public sealed partial class RrbList<T>
             if (indexInTail < TailLen - 1)
                 Array.Copy(Tail, indexInTail + 1, newTailItems, indexInTail, TailLen - indexInTail - 1);
 
-            return new RrbList<T>(Root, newTailItems, Count - 1, Shift, newTailItems.Length);
+            return new RrbList<T>(Root, newTailItems, Count - 1, Shift, newTailItems.Length, Head, HeadLen);
         }
 
         // Sad case: Index is in the Tree
         // We execute a zip removal, which is always going to be faster than 
         // removing using slice, but may end up with a more unbalanced tree
 
-        var newRoot = RrbAlgorithm.RemoveRecursive(Root!, index, Shift);
+        var newRoot = RrbAlgorithm.RemoveRecursive(Root!, index - HeadLen, Shift);
         var newShift = Shift;
 
         // The tree is no taller than what is left of it needs.
-        newRoot = RrbAlgorithm.LowerRoot(newRoot, ref newShift, Count - 1 - TailLen);
+        newRoot = RrbAlgorithm.LowerRoot(newRoot, ref newShift, TreeCount - 1);
 
         if (newRoot == null)
-            // Tree empty, only tail remains
-            return new RrbList<T>(null, Tail, TailLen, 0, TailLen);
+            // Tree empty, only head and tail remain
+            return WithHead(Head, HeadLen, new RrbList<T>(null, Tail, TailLen, 0, TailLen));
 
-        return new RrbList<T>(newRoot, Tail, Count - 1, newShift, TailLen);
+        return new RrbList<T>(newRoot, Tail, Count - 1, newShift, TailLen, Head, HeadLen);
     }
 
     /**
@@ -882,6 +1059,13 @@ public sealed partial class RrbList<T>
     {
         var sb = new StringBuilder();
         sb.AppendLine($"RrbList<{typeof(T).Name}> (Cnt: {Count}, Height: {Shift / Constants.RRB_BITS})");
+
+        if (HeadLen > 0)
+        {
+            sb.Append("  [Head]: ");
+            PrintItems(sb, Head!, HeadLen);
+            sb.AppendLine();
+        }
 
         if (TailLen > 0)
         {
@@ -953,33 +1137,28 @@ public sealed partial class RrbList<T>
      */
     public RrbList<T> Pop()
     {
-        if (Count == 0) throw new InvalidOperationException("List is empty");
-
-        // Fast Path: Just shrink the tail count
-        if (TailLen > 1)
+        // Fast Path: Just shrink the tail count. Kept small enough to inline:
+        // the empty list and the slow path are out of line.
+        var tailLen = TailLen;
+        if (tailLen > 1)
         {
-            var newTailItems = new T[TailLen - 1];
-            Array.Copy(Tail, 0, newTailItems, 0, TailLen - 1);
+            var newTailItems = new T[tailLen - 1];
+            Array.Copy(Tail, 0, newTailItems, 0, tailLen - 1);
 
-            return new RrbList<T>(Root, newTailItems, Count - 1, Shift, TailLen - 1);
+            return new RrbList<T>(Root, newTailItems, Count - 1, Shift, tailLen - 1, Head, HeadLen);
         }
+
+        return PopSlow();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private RrbList<T> PopSlow()
+    {
+        if (Count == 0) throw new InvalidOperationException("List is empty");
 
         // Slow Path: Tail becomes empty.
         // We rely on Slice to find the new tail from the tree.
         return Slice(0, Count - 1);
-    }
-
-    /**
-     * <summary>
-     *     Removes the first element from the list.
-     * </summary>
-     * <returns>A new list with the first element removed.</returns>
-     */
-    public RrbList<T> PopFirst()
-    {
-        if (Count == 0) throw new InvalidOperationException("List is empty");
-
-        return Slice(1, Count - 1);
     }
 
     /**
@@ -989,16 +1168,30 @@ public sealed partial class RrbList<T>
      */
     public void VerifyIntegrity()
     {
-        if (Root == null) return;
+        if (HeadLen < 0 || HeadLen > Constants.RRB_BRANCHING)
+            throw new Exception($"Integrity Error: HeadLen {HeadLen} out of range");
+        if (HeadLen > 0 && (Head == null || Head.Length < HeadLen))
+            throw new Exception($"Integrity Error: Head array size {Head?.Length} < HeadLen {HeadLen}");
+        if (TailLen < 0 || TailLen > Constants.RRB_BRANCHING)
+            throw new Exception($"Integrity Error: TailLen {TailLen} out of range");
+
+        if (Root == null)
+        {
+            if (HeadLen != 0)
+                throw new Exception($"Integrity Error: list without a tree has a head of {HeadLen}");
+            if (Count != TailLen)
+                throw new Exception($"Integrity Error: list without a tree has Count {Count} but TailLen {TailLen}");
+            return;
+        }
 
         // 1. Traverse and verify structure/invariants
         VerifyNode(Root, Shift);
 
         // 2. Verify total count matches metadata
         var countedSize = CountNode(Root, Shift);
-        if (countedSize != Count - TailLen)
+        if (countedSize != TreeCount)
             throw new Exception(
-                $"Integrity Error: Root tracks {Count - TailLen} items, but traversal found {countedSize}.");
+                $"Integrity Error: Root tracks {TreeCount} items, but traversal found {countedSize}.");
 
         if (Tail.Length < TailLen)
             throw new Exception($"Integrity Error: Tail array size {Tail.Length} < TailLen {TailLen}");
@@ -1037,7 +1230,7 @@ public sealed partial class RrbList<T>
         var leaves = 0;
         var internalNodes = 0;
         CountShape(Root, Shift, ref leaves, ref internalNodes);
-        var treeItems = Count - TailLen;
+        var treeItems = TreeCount;
         return (Shift / Constants.RRB_BITS, leaves, internalNodes, (treeItems + Constants.RRB_BRANCHING - 1) / Constants.RRB_BRANCHING);
     }
 

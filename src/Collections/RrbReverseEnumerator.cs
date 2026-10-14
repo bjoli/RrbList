@@ -116,11 +116,22 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
             return true;
         }
 
-        // 2. Traverse Tree
+        // 2. Check Head. A walk reaches it last, so the tree's stack is never
+        // advanced past the tree's first leaf.
+        var headLen = _list.HeadLen;
+        if (_totalIndex < headLen)
+        {
+            _currentItems = _list.Head;
+            _leafIndex = _totalIndex;
+            _leafFloor = Floor();
+            return true;
+        }
+
+        // 3. Traverse Tree
         if (!_inTree)
         {
             // First time entering the tree, from the start or from the tail.
-            SetupStack(_list.Root!, _list.Shift, _totalIndex);
+            SetupStack(_list.Root!, _list.Shift, _totalIndex - headLen);
             _inTree = true;
         }
         else

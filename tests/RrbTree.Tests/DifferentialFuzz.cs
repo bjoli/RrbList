@@ -31,6 +31,26 @@ public class DifferentialFuzz
             j++;
         }
         if (j != expected.Count) throw new Exception($"{what}: enumerator yielded {j} items");
+
+        // Backwards, which crosses tail, tree and head in the other order.
+        var k = expected.Count - 1;
+        foreach (var x in actual.ReverseEnumerator())
+        {
+            if (x != expected[k]) throw new Exception($"{what}: reverse enumerator at {k} is {x}, expected {expected[k]}");
+            k--;
+        }
+        if (k != -1) throw new Exception($"{what}: reverse enumerator stopped at {k}");
+
+        // Leaf by leaf, as Bjolang's vec walks read it.
+        for (var i = 0; i < expected.Count;)
+        {
+            var items = actual.LeafAt(i, out var position, out var length);
+            if (position >= length) throw new Exception($"{what}: LeafAt({i}) position {position} >= length {length}");
+            for (var p = position; p < length; p++, i++)
+                if (items[p] != expected[i])
+                    throw new Exception($"{what}: LeafAt walk at {i} is {items[p]}, expected {expected[i]}");
+        }
+
         CheckWear(actual, what);
     }
 
@@ -57,8 +77,15 @@ public class DifferentialFuzz
         for (var i = 0; i < size; i++) items.Add(Fresh());
 
         RrbList<int> list;
-        switch (_rng.Next(4))
+        switch (_rng.Next(5))
         {
+            case 4:
+            {
+                // Built from the front, so the tree's left spine is relaxed and there is a head.
+                list = RrbList<int>.Empty;
+                for (var i = items.Count - 1; i >= 0; i--) list = list.Prepend(items[i]);
+                break;
+            }
             case 0:
                 list = RrbList<int>.Create(items.ToArray());
                 break;
@@ -100,12 +127,84 @@ public class DifferentialFuzz
     private void Step(ref RrbList<int> actual, List<int> expected)
     {
         var n = expected.Count;
-        var op = _rng.Next(13);
+        var op = _rng.Next(16);
         // Over the cap, only shrink.
         if (n > MaxSize) op = 3 + _rng.Next(3);
 
         switch (op)
         {
+            case 13:
+            {
+                // Sometimes past a leaf's worth, so the head is pushed into the tree.
+                var k = _rng.Next(4) == 0 ? _rng.Next(80, 1200) : _rng.Next(1, 80);
+                _op = $"Prepend x{k}";
+                for (var i = 0; i < k; i++)
+                {
+                    var v = Fresh();
+                    actual = actual.Prepend(v);
+                    expected.Insert(0, v);
+                }
+                break;
+            }
+            case 14:
+            {
+                // Head and tail used from both ends, as a deque would be.
+                var k = _rng.Next(1, 200);
+                _op = $"Deque x{k}";
+                for (var i = 0; i < k; i++)
+                {
+                    switch (_rng.Next(4))
+                    {
+                        case 0:
+                        {
+                            var v = Fresh();
+                            actual = actual.Prepend(v);
+                            expected.Insert(0, v);
+                            break;
+                        }
+                        case 1:
+                        {
+                            var v = Fresh();
+                            actual = actual.Add(v);
+                            expected.Add(v);
+                            break;
+                        }
+                        case 2:
+                            if (expected.Count == 0) break;
+                            actual = actual.PopFirst();
+                            expected.RemoveAt(0);
+                            break;
+                        default:
+                            if (expected.Count == 0) break;
+                            actual = actual.Pop();
+                            expected.RemoveAt(expected.Count - 1);
+                            break;
+                    }
+                }
+                break;
+            }
+            case 15:
+            {
+                // Inserts and removes near the front, in and around the head.
+                var k = _rng.Next(1, 40);
+                _op = $"FrontEdit x{k}";
+                for (var i = 0; i < k; i++)
+                {
+                    var at = _rng.Next(Math.Min(expected.Count, 40) + 1);
+                    if (_rng.Next(2) == 0 || expected.Count == 0 || at == expected.Count)
+                    {
+                        var v = Fresh();
+                        actual = actual.Insert(at, v);
+                        expected.Insert(at, v);
+                    }
+                    else
+                    {
+                        actual = actual.RemoveAt(at);
+                        expected.RemoveAt(at);
+                    }
+                }
+                break;
+            }
             case 0:
             {
                 var k = _rng.Next(1, 80);

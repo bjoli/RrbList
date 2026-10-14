@@ -1281,6 +1281,196 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
         return newParent;
     }
 
+    // ---------------------------------------------------------------------
+    // The left edge: the head's counterparts of AppendLeafToTree and
+    // SliceRightAndPromote.
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    ///     Puts a full leaf in front of the tree, the mirror of AppendLeafToTree.
+    ///     Returns null when doing so would break the search step invariant at
+    ///     some node, and the caller then goes through Concat, which repacks.
+    /// </summary>
+    /// <remarks>
+    ///     Only full leaves come here. A full leaf in front of the children of
+    ///     a dense node above the leaves leaves it dense, as every child but the
+    ///     last is still full. Further up, the first child grows, and a dense
+    ///     node with more than that child has to become relaxed.
+    /// </remarks>
+    internal static Node<T>? TryPrependLeaf<T>(Node<T>? root, LeafNode<T> leaf, ref int shift)
+    {
+        if (root == null)
+        {
+            shift = 0;
+            return leaf;
+        }
+
+        // A lone leaf for root: the new leaf is full, so the parent is dense.
+        if (shift == 0)
+        {
+            shift = Constants.RRB_BITS;
+            return CreateNewParent(leaf, root, OwnerId.None);
+        }
+
+        var failed = false;
+        var newRoot = PrependDown(root, leaf, shift, ref failed);
+        if (failed) return null;
+        if (newRoot != null) return newRoot;
+
+        // The whole left spine is full: a new root over a path to the leaf and
+        // the old root. The path holds less than a node at this level, so
+        // the root is relaxed.
+        var rootSize = CountTree(root, shift);
+        var children = new Node<T>?[] { CreatePath(shift, leaf, OwnerId.None), root };
+        var table = new[] { leaf.Len, leaf.Len + rootSize };
+        shift += Constants.RRB_BITS;
+        return new InternalNode<T>(children, table, 2, OwnerId.None);
+    }
+
+    // The node with `leaf` put in front of its first leaf, or null when the
+    // left spine below it is full. Sets `failed` when there was room, but
+    // using it would break the search step invariant.
+    private static InternalNode<T>? PrependDown<T>(Node<T> node, LeafNode<T> leaf, int shift, ref bool failed)
+    {
+        var inode = AsInternal(node);
+        var len = inode.Len;
+        var added = leaf.Len;
+
+        // Above the leaves: the leaf becomes the first child.
+        if (shift == Constants.RRB_BITS)
+        {
+            if (len >= Constants.RRB_BRANCHING) return null;
+            return PrependChild(inode, leaf, added, shift, keepsDense: inode.IsDense());
+        }
+
+        var first = inode.Children[0]!;
+        var newFirst = PrependDown(first, leaf, shift - Constants.RRB_BITS, ref failed);
+        if (failed) return null;
+
+        if (newFirst != null)
+        {
+            var children = new Node<T>?[len];
+            Array.Copy(inode.Children, children, len);
+            children[0] = newFirst;
+
+            // A dense node with one child stays dense if that child does: the
+            // child is also its last, which may be part-full.
+            int[]? table = null;
+            if (inode.IsRelaxed() || len > 1 || newFirst.IsRelaxed())
+            {
+                table = inode.SizeTable != null ? (int[])inode.SizeTable.Clone() : DenseTable(inode, shift);
+                for (var i = 0; i < len; i++) table[i] += added;
+            }
+
+            // The first child has as many or one more children than it had,
+            // so the slots grew and the invariant cannot have moved.
+            return new InternalNode<T>(children, table, len, OwnerId.None);
+        }
+
+        // The spine below is full: a new path to the leaf in front.
+        if (len >= Constants.RRB_BRANCHING) return null;
+
+        // One more child holding one slot.
+        var slots = SlotsOfChildren(inode.Children, len) + 1;
+        if (len + 1 > AllowedChildren(slots))
+        {
+            failed = true;
+            return null;
+        }
+
+        var path = CreatePath(shift - Constants.RRB_BITS, leaf, OwnerId.None);
+        return PrependChild(inode, path, added, shift, keepsDense: false);
+    }
+
+    // `node` with `child`, which holds `childSize` items, in front of its children.
+    private static InternalNode<T> PrependChild<T>(InternalNode<T> node, Node<T> child, int childSize, int shift, bool keepsDense)
+    {
+        var len = node.Len;
+        var children = new Node<T>?[len + 1];
+        children[0] = child;
+        Array.Copy(node.Children, 0, children, 1, len);
+
+        int[]? table = null;
+        if (!keepsDense)
+        {
+            var old = node.SizeTable ?? DenseTable(node, shift);
+            table = new int[len + 1];
+            table[0] = childSize;
+            for (var i = 0; i < len; i++) table[i + 1] = old[i] + childSize;
+        }
+
+        return new InternalNode<T>(children, table, len + 1, OwnerId.None);
+    }
+
+    /// <summary>
+    ///     The tree without its first leaf, which is handed back in
+    ///     <paramref name="leaf" />: the mirror of SliceRightAndPromote, for a
+    ///     head that has run out. Null when the leaf was all the tree had. The
+    ///     root may be left taller than it need be; see LowerRoot.
+    /// </summary>
+    /// <remarks>
+    ///     A dense node that loses its first child stays dense: the rest are
+    ///     still full but for the last. A dense node whose first child shrinks
+    ///     becomes relaxed, unless that child is also its last.
+    /// </remarks>
+    internal static Node<T>? RemoveFirstLeaf<T>(Node<T> node, int shift, out LeafNode<T> leaf)
+    {
+        if (shift == 0)
+        {
+            leaf = AsLeaf(node);
+            return null;
+        }
+
+        var inode = AsInternal(node);
+        var len = inode.Len;
+        var newFirst = RemoveFirstLeaf(inode.Children[0]!, shift - Constants.RRB_BITS, out leaf);
+        var removed = leaf.Len;
+
+        if (newFirst == null)
+        {
+            if (len == 1) return null;
+
+            var rest = new Node<T>?[len - 1];
+            Array.Copy(inode.Children, 1, rest, 0, len - 1);
+
+            int[]? restTable = null;
+            if (inode.SizeTable != null)
+            {
+                restTable = new int[len - 1];
+                for (var i = 0; i < len - 1; i++) restTable[i] = inode.SizeTable[i + 1] - removed;
+            }
+
+            return new InternalNode<T>(rest, restTable, len - 1, OwnerId.None);
+        }
+
+        var children = new Node<T>?[len];
+        Array.Copy(inode.Children, children, len);
+        children[0] = newFirst;
+
+        int[]? table = null;
+        if (inode.IsRelaxed() || len > 1 || newFirst.IsRelaxed())
+        {
+            table = inode.SizeTable != null ? (int[])inode.SizeTable.Clone() : DenseTable(inode, shift);
+            for (var i = 0; i < len; i++) table[i] -= removed;
+        }
+
+        return new InternalNode<T>(children, table, len, OwnerId.None);
+    }
+
+    /// <summary>
+    ///     How many items the first leaf of the tree holds.
+    /// </summary>
+    internal static int FirstLeafLen<T>(Node<T> node, int shift)
+    {
+        while (shift > 0)
+        {
+            node = AsInternal(node).Children[0]!;
+            shift -= Constants.RRB_BITS;
+        }
+
+        return node.Len;
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Node<T> CreatePath<T>(int shift, LeafNode<T> tail, OwnerId token)
     {

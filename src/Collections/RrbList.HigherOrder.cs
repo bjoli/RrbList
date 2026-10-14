@@ -27,6 +27,13 @@ public sealed partial class RrbList<T>
     {
         var state = seed;
 
+        // Fold over the head part
+        if (HeadLen > 0)
+        {
+            var items = Head!;
+            for (var i = 0; i < HeadLen; i++) state = func(items[i], state);
+        }
+
         // Fold over the tree part
         if (Root != null) state = FoldNode(Root, Shift, state, func);
 
@@ -101,6 +108,16 @@ public sealed partial class RrbList<T>
      */
     public bool Iter(Func<T, bool> action)
     {
+        // 0. Iterate Head
+        if (HeadLen > 0)
+        {
+            var items = Head!;
+            var len = HeadLen;
+            for (var i = 0; i < len; i++)
+                if (!action(items[i]))
+                    return false;
+        }
+
         // 1. Iterate Tree
         if (Root != null)
             // If the tree part returns false, we stop immediately and return false.
@@ -169,8 +186,24 @@ public sealed partial class RrbList<T>
         if (count < 0 || index + count > Count) throw new ArgumentOutOfRangeException(nameof(count));
         if (count == 0) return;
 
+        // Traverse the Head
+        if (index < HeadLen)
+        {
+            var items = Head!;
+            var fromHead = Math.Min(count, HeadLen - index);
+            var end = index + fromHead;
+            for (var i = index; i < end; i++) action(items[i]);
+
+            count -= fromHead;
+            if (count == 0) return;
+            index = HeadLen;
+        }
+
+        // From here on, index is relative to the start of the tree.
+        index -= HeadLen;
+
         // Traverse the Tree (Root)
-        var treeSize = Count - TailLen;
+        var treeSize = TreeCount;
 
         // Check if our range overlaps with the tree
         if (index < treeSize && Root != null)
@@ -289,14 +322,25 @@ public sealed partial class RrbList<T>
         if (mapper == null) throw new ArgumentNullException(nameof(mapper));
         if (Count == 0) return RrbList<TResult>.Empty;
 
-        // 1. Map the Tree
+        // 1. Map the Head (first, so that mapper sees the items in order)
+        TResult[] newHead = Array.Empty<TResult>();
+        if (HeadLen > 0)
+        {
+            newHead = new TResult[HeadLen];
+            for (var i = 0; i < HeadLen; i++)
+            {
+                newHead[i] = mapper(Head![i]);
+            }
+        }
+
+        // 2. Map the Tree
         Node<TResult>? newRoot = null;
         if (Root != null)
         {
             newRoot = MapNode(Root, Shift, mapper);
         }
 
-        // 2. Map the Tail
+        // 3. Map the Tail
         TResult[] newTail = Array.Empty<TResult>();
         if (TailLen > 0)
         {
@@ -307,7 +351,7 @@ public sealed partial class RrbList<T>
             }
         }
 
-        return new RrbList<TResult>(newRoot, newTail, Count, Shift, TailLen);
+        return new RrbList<TResult>(newRoot, newTail, Count, Shift, TailLen, newHead, HeadLen);
     }
 
     // This function copies it's way down to the leaf nodes and then runs a copy of the 

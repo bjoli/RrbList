@@ -59,6 +59,10 @@ http://hypirion.com/thesis
 RrbList efficiently supports split, slice, merge, indexing and index based updates. Adding to that, the interfaces
 IEnumerable and IImmutableList are implemented.
 
+Like the tail, there is a head: up to 32 items in front of the tree, so Prepend and PopFirst are as cheap as Add and
+Pop. A full head is pushed down the tree's left spine as a leaf, and an empty one takes the tree's first leaf. A list
+with no tree keeps everything in its tail, so it never has a head.
+
 # Things that have to be made better before a stable release
 
 * Indexing into unbalanced trees should use AVX (DONE)
