@@ -253,6 +253,63 @@ public class GapTests
         }
     }
 
+    // Dense lists, with and without a Gap, and what they hold.
+    private static IEnumerable<(string, RrbList<int>, List<int>)> DenseLists()
+    {
+        foreach (var n in new[] { 3000, 40_000, 300_000 })
+            yield return ($"Create({n})", RrbList<int>.Create(Enumerable.Range(0, n).ToArray()), Enumerable.Range(0, n).ToList());
+        foreach (var t in GapLists()) yield return t;
+    }
+
+    [Test]
+    public void MiddleSlices_OfADenseTree_StayDense()
+    {
+        var rng = new Random(17);
+        foreach (var (name, l, expected) in DenseLists())
+        {
+            for (var k = 0; k < 40; k++)
+            {
+                var start = rng.Next(1, expected.Count - 70);
+                var count = rng.Next(65, expected.Count - start);
+                var s = l.Slice(start, count);
+                Check(expected.GetRange(start, count), s, $"{name}.Slice({start}, {count})");
+                AssertDense(s, $"{name}.Slice({start}, {count})");
+            }
+
+            // Slices of slices.
+            var cur = l;
+            var exp = expected.ToList();
+            while (exp.Count > 200)
+            {
+                var start = rng.Next(1, exp.Count / 4);
+                var count = rng.Next(exp.Count / 2, exp.Count - start);
+                cur = cur.Slice(start, count);
+                exp = exp.GetRange(start, count);
+                Check(exp, cur, $"{name} nested slice");
+                AssertDense(cur, $"{name} nested slice");
+            }
+        }
+    }
+
+    [Test]
+    public void Splits_OfADenseTree_StayDense()
+    {
+        var rng = new Random(19);
+        foreach (var (name, l, expected) in DenseLists())
+        {
+            var points = Enumerable.Range(0, 40).Select(_ => rng.Next(1, expected.Count)).ToList();
+            points.AddRange([1, 31, 32, 33, 64, 65, expected.Count - 33, expected.Count - 1]);
+            foreach (var at in points)
+            {
+                var (left, right) = l.Split(at);
+                Check(expected.GetRange(0, at), left, $"{name}.Split({at}).Left");
+                Check(expected.GetRange(at, expected.Count - at), right, $"{name}.Split({at}).Right");
+                AssertDense(left, $"{name}.Split({at}).Left");
+                AssertDense(right, $"{name}.Split({at}).Right");
+            }
+        }
+    }
+
     [Test]
     public void Equality_IgnoresTheGap()
     {

@@ -251,18 +251,17 @@ public sealed partial class RrbList<T>
     internal RrbList<T> DropTreeFront(int k)
     {
         var pos = Gap + k;
-        var root = RrbAlgorithm.PhantomUpTo(Root!, Shift, pos, out var leaf);
+
+        // The root's children left of the path are left out, not made phantoms.
+        var skip = TopDigit(pos);
+        var root = RrbAlgorithm.PhantomUpTo(Root!, Shift, pos, out var leaf, skip);
 
         var start = pos & Constants.RRB_MASK;
         var headLen = leaf.Len - start;
         var treeItems = TreeCount - k - headLen;
-        var gap = (pos & ~Constants.RRB_MASK) + Constants.RRB_BRANCHING;
+        var gap = (pos & ~Constants.RRB_MASK) + Constants.RRB_BRANCHING - (skip << Shift);
         var shift = Shift;
         root = NormalizeGap(root, ref shift, ref gap, treeItems);
-
-        var rest = root == null
-            ? new RrbList<T>(null, Tail, TailLen, 0, TailLen)
-            : new RrbList<T>(root, Tail, treeItems + TailLen, shift, TailLen, null, 0, gap);
 
         T[] head;
         if (start == 0)
@@ -275,8 +274,121 @@ public sealed partial class RrbList<T>
             Array.Copy(leaf.Items, start, head, 0, headLen);
         }
 
-        return WithHead(head, headLen, rest);
+        if (root != null)
+            return new RrbList<T>(root, Tail, headLen + treeItems + TailLen, shift, TailLen, head, headLen, gap);
+
+        return WithHead(head, headLen, new RrbList<T>(null, Tail, TailLen, 0, TailLen));
     }
+
+    // This list, with no head and a dense tree, split at `index`, which is in
+    // the tree, in one pass (SplitDense). The leaf the split is in gives the
+    // left half its tail and the right half its head. The left half keeps the
+    // Gap, and the right half starts after a Gap that ends with that leaf.
+    // Both stay dense.
+    private (RrbList<T> Left, RrbList<T> Right) SplitDenseTree(int index)
+    {
+        var pos = Gap + index;
+        var shift = Shift;
+        var skip = TopDigit(pos);
+        Node<T>? leftRoot;
+        Node<T>? rightRoot;
+        LeafNode<T> leaf;
+        if (shift == 0)
+        {
+            // A lone leaf for a tree: it is all split between the two.
+            leaf = RrbAlgorithm.AsLeaf(Root!);
+            leftRoot = null;
+            rightRoot = null;
+        }
+        else
+        {
+            RrbAlgorithm.SplitDense(Root!, shift, pos, out leftRoot, out var right, out leaf, skip);
+            rightRoot = right;
+        }
+
+        var cut = pos & Constants.RRB_MASK;
+
+        // Left: the tree before the leaf, and the leaf up to the split as tail.
+        var leftTail = cut == 0 ? Array.Empty<T>() : ExactArray(leaf.Items, cut);
+        var leftTreeItems = index - cut;
+        var leftShift = shift;
+        var leftGap = Gap;
+        leftRoot = NormalizeGap(leftRoot, ref leftShift, ref leftGap, leftTreeItems);
+        var leftList = leftRoot == null
+            ? new RrbList<T>(null, leftTail, cut, 0, cut)
+            : new RrbList<T>(leftRoot, leftTail, index, leftShift, cut, null, 0, leftGap);
+
+        // Right: the rest of the leaf as head, and the tree after it.
+        var headLen = leaf.Len - cut;
+        T[] head;
+        if (cut == 0)
+        {
+            head = ExactArray(leaf.Items, leaf.Len);
+        }
+        else
+        {
+            head = new T[headLen];
+            Array.Copy(leaf.Items, cut, head, 0, headLen);
+        }
+
+        var rightTreeItems = TreeCount - index - headLen;
+        var rightShift = shift;
+        var rightGap = (pos & ~Constants.RRB_MASK) + Constants.RRB_BRANCHING - (skip << Shift);
+        rightRoot = NormalizeGap(rightRoot, ref rightShift, ref rightGap, rightTreeItems);
+        var rightCount = Count - index;
+        var rightList = rightRoot == null
+            ? WithHead(head, headLen, new RrbList<T>(null, Tail, TailLen, 0, TailLen))
+            : new RrbList<T>(rightRoot, Tail, rightCount, rightShift, TailLen, head, headLen, rightGap);
+
+        return (leftList, rightList);
+    }
+
+    // This list, with no head and a dense tree, sliced to `count` items from
+    // `start`, all in the tree, for a count longer than two leaves. One pass
+    // (CutDense) makes phantoms of every leaf up to the one `start` is in and
+    // cuts off every leaf from the one the slice ends in. Those two leaves give
+    // the head and the tail, and the tree between them stays dense, after a Gap.
+    private RrbList<T> SliceDenseTree(int start, int count)
+    {
+        var first = Gap + start;
+        var last = first + count - 1;
+        var skip = TopDigit(first);
+        var root = RrbAlgorithm.CutDense(Root!, Shift, first, last, out var firstLeaf, out var lastLeaf, skip);
+
+        var headStart = first & Constants.RRB_MASK;
+        var headLen = firstLeaf.Len - headStart;
+        var tailLen = (last & Constants.RRB_MASK) + 1;
+        var treeItems = count - headLen - tailLen;
+
+        var gap = (first & ~Constants.RRB_MASK) + Constants.RRB_BRANCHING - (skip << Shift);
+        var shift = Shift;
+        root = NormalizeGap(root, ref shift, ref gap, treeItems);
+
+        T[] head;
+        if (headStart == 0)
+        {
+            head = ExactArray(firstLeaf.Items, firstLeaf.Len);
+        }
+        else
+        {
+            head = new T[headLen];
+            Array.Copy(firstLeaf.Items, headStart, head, 0, headLen);
+        }
+
+        var tail = ExactArray(lastLeaf.Items, tailLen);
+        return new RrbList<T>(root, tail, count, shift, tailLen, head, headLen, gap);
+    }
+
+    // How many of the root's first children a cut from the left at tree position
+    // `pos` can leave out: those before the child that holds `pos`, and when the
+    // root is above the leaves, that child too, as the leaf goes to the head.
+    // 0 when the root is a leaf.
+    private int TopDigit(int pos) => Shift switch
+    {
+        0 => 0,
+        Constants.RRB_BITS => ((pos >> Shift) & Constants.RRB_MASK) + 1,
+        _ => (pos >> Shift) & Constants.RRB_MASK
+    };
 
     // The same list with Gap 0: the phantoms cut away and the left spine given
     // size tables. What an operation that does not keep a Gap starts from.
@@ -313,8 +425,9 @@ public sealed partial class RrbList<T>
             return null;
         }
 
-        if (gap == 0) return root;
-        if (root.IsRelaxed()) return MaterializeTree(root, ref shift, ref gap, treeItems);
+        // A relaxed tree has no Gap. Without one, the loop below only gives up
+        // a root with one child, which is all a dense tree can be too tall by.
+        if (root.IsRelaxed()) return gap == 0 ? root : MaterializeTree(root, ref shift, ref gap, treeItems);
 
         while (shift > 0)
         {

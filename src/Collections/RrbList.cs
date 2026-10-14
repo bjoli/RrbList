@@ -626,8 +626,19 @@ public sealed partial class RrbList<T>
             return new RrbList<T>(takeRoot, takeTail, count, tempShift, len);
         }
 
-        // --- 6. General Case: in the middle, with no Gap ---
-        if (Gap > 0) return Materialized().Slice(start, count);
+        // --- 6. In the middle of a dense tree: a drop, and then a take ---
+        // Both keep a dense tree dense: the drop leaves a Gap, and what is
+        // left of the leaf it ends in as the head, and the take cuts the right
+        // edge, which a dense tree may leave part-full. A cut from the left
+        // by RrbAlgorithm.Slice would give the left spine size tables.
+        // (A tree with a Gap is dense, so this takes those too.)
+        if (Root!.IsDense())
+        {
+            if (start + count <= treeSize) return SliceDenseTree(start, count);
+            return DropTreeFront(start).Slice(0, count);
+        }
+
+        // --- 7. General Case: in the middle of a relaxed tree ---
 
         var treeSliceStart = start;
         var treeSliceEnd = Math.Min(start + count, treeSize);
@@ -900,8 +911,14 @@ public sealed partial class RrbList<T>
                 new RrbList<T>(null, rightTailItems, Count - index, 0, rightTailLen));
         }
 
-        // --- Case 2: Split is in the tree — single-pass algorithm, with no Gap ---
-        if (Gap > 0) return Materialized().Split(index);
+        // --- Case 2: Split is in the tree ---
+        // A dense tree is cut into a take and a drop, which both keep it
+        // dense: the left half's right edge may be part-full, and the right
+        // half starts after a Gap, with what is left of the leaf the cut is
+        // in as its head. (A tree with a Gap is dense, so this takes those too.)
+        if (Root!.IsDense()) return SplitDenseTree(index);
+
+        // A relaxed tree: single-pass algorithm.
 
         RrbAlgorithm.SplitTree(Root!, index, Shift,
             out var leftRoot, out var leftTail, out var leftTailLen,

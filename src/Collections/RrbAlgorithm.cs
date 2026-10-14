@@ -1488,8 +1488,11 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
     ///     <paramref name="leaf" />. Every child left of the path becomes a phantom
     ///     too, so that nothing of what is dropped stays reachable. Null when the
     ///     tree is a leaf: then it is all handed back.
+    ///     <paramref name="skip" /> of the node's first children, all left of the
+    ///     path, are left out rather than made phantoms: at the root that is what
+    ///     NormalizeGap would cut off, and the caller takes them off the Gap.
     /// </summary>
-    internal static Node<T>? PhantomUpTo<T>(Node<T> node, int shift, int pos, out LeafNode<T> leaf)
+    internal static Node<T>? PhantomUpTo<T>(Node<T> node, int shift, int pos, out LeafNode<T> leaf, int skip = 0)
     {
         if (shift == 0)
         {
@@ -1499,24 +1502,166 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
 
         var inode = AsInternal(node);
         var d = (pos >> shift) & Constants.RRB_MASK;
-        var len = inode.Len;
+        var len = inode.Len - skip;
         var childShift = shift - Constants.RRB_BITS;
         var phantom = Phantom<T>.At(childShift);
 
         var children = new Node<T>?[len];
-        Array.Copy(inode.Children, children, len);
-        for (var i = 0; i < d; i++) children[i] = phantom;
+        Array.Copy(inode.Children, skip, children, 0, len);
+        for (var i = 0; i < d - skip; i++) children[i] = phantom;
 
         if (childShift == 0)
         {
+            // Above the leaves, skip may take the leaf on the path too.
             leaf = AsLeaf(inode.Children[d]!);
-            children[d] = phantom;
+            if (d >= skip) children[d - skip] = phantom;
         }
         else
         {
-            children[d] = PhantomUpTo(inode.Children[d]!, childShift, pos, out leaf);
+            children[d - skip] = PhantomUpTo(inode.Children[d]!, childShift, pos, out leaf);
         }
 
+        return new InternalNode<T>(children, null, len, OwnerId.None);
+    }
+
+    /// <summary>
+    ///     The dense tree cut to the leaves strictly between the leaf that holds
+    ///     <paramref name="first" /> and the leaf that holds <paramref name="last" />,
+    ///     in one pass: every leaf up to the first one becomes a phantom, as in
+    ///     PhantomUpTo, and every leaf from the last one on is cut off, as a take
+    ///     would. The two leaves are handed back. Requires at least one leaf between
+    ///     them, so that the tree that is left holds items. <paramref name="skip" />
+    ///     is as for PhantomUpTo.
+    /// </summary>
+    internal static Node<T> CutDense<T>(Node<T> node, int shift, int first, int last,
+        out LeafNode<T> firstLeaf, out LeafNode<T> lastLeaf, int skip = 0)
+    {
+        var inode = AsInternal(node);
+        var dl = (first >> shift) & Constants.RRB_MASK;
+        var dr = (last >> shift) & Constants.RRB_MASK;
+        var childShift = shift - Constants.RRB_BITS;
+
+        // Above the leaves, both paths go through one child: descend.
+        if (dl == dr && childShift > 0)
+        {
+            var only = CutDense(inode.Children[dl]!, childShift, first, last, out firstLeaf, out lastLeaf);
+            var onlyLen = dl + 1 - skip;
+            var onlyChildren = new Node<T>?[onlyLen];
+            var onlyPhantom = Phantom<T>.At(childShift);
+            for (var i = 0; i < dl - skip; i++) onlyChildren[i] = onlyPhantom;
+            onlyChildren[dl - skip] = only;
+            return new InternalNode<T>(onlyChildren, null, onlyLen, OwnerId.None);
+        }
+
+        // The paths part here. To the right of the right path nothing is kept;
+        // at the leaves, not the last leaf either.
+        Node<T>? right = null;
+        if (childShift == 0)
+        {
+            lastLeaf = AsLeaf(inode.Children[dr]!);
+        }
+        else
+        {
+            right = CutBefore(inode.Children[dr]!, childShift, last, out lastLeaf);
+        }
+
+        var end = right == null ? dr : dr + 1;
+        var len = end - skip;
+        var children = new Node<T>?[len];
+        var phantom = Phantom<T>.At(childShift);
+        for (var i = 0; i < dl - skip; i++) children[i] = phantom;
+
+        if (childShift == 0)
+        {
+            // Above the leaves, skip may take the first leaf too.
+            firstLeaf = AsLeaf(inode.Children[dl]!);
+            if (dl >= skip) children[dl - skip] = phantom;
+        }
+        else
+        {
+            children[dl - skip] = PhantomUpTo(inode.Children[dl]!, childShift, first, out firstLeaf);
+        }
+
+        var between = dr - dl - 1;
+        if (between > 0) Array.Copy(inode.Children, dl + 1, children, dl + 1 - skip, between);
+        if (right != null) children[dr - skip] = right;
+
+        return new InternalNode<T>(children, null, len, OwnerId.None);
+    }
+
+    /// <summary>
+    ///     The dense tree split at the leaf that holds <paramref name="pos" />, in
+    ///     one pass, into the leaves before it (<paramref name="left" />, dense, null
+    ///     when there are none) and the leaves after it, after phantoms for every
+    ///     leaf up to it (<paramref name="right" />, dense). The leaf is handed back.
+    ///     <paramref name="skip" /> is as for PhantomUpTo, for the right half.
+    /// </summary>
+    internal static void SplitDense<T>(Node<T> node, int shift, int pos,
+        out Node<T>? left, out Node<T> right, out LeafNode<T> leaf, int skip = 0)
+    {
+        var inode = AsInternal(node);
+        var d = (pos >> shift) & Constants.RRB_MASK;
+        var len = inode.Len;
+        var childShift = shift - Constants.RRB_BITS;
+        var phantom = Phantom<T>.At(childShift);
+
+        Node<T>? childLeft;
+        Node<T> childRight;
+        if (childShift == 0)
+        {
+            leaf = AsLeaf(inode.Children[d]!);
+            childLeft = null;
+            childRight = phantom;
+        }
+        else
+        {
+            SplitDense(inode.Children[d]!, childShift, pos, out childLeft, out childRight, out leaf);
+        }
+
+        // Left: the children before the path, and what the path keeps.
+        var leftLen = childLeft == null ? d : d + 1;
+        if (leftLen == 0)
+        {
+            left = null;
+        }
+        else
+        {
+            var leftChildren = new Node<T>?[leftLen];
+            Array.Copy(inode.Children, leftChildren, d);
+            if (childLeft != null) leftChildren[d] = childLeft;
+            left = new InternalNode<T>(leftChildren, null, leftLen, OwnerId.None);
+        }
+
+        // Right: phantoms before the path, what the path keeps, and the rest.
+        // Above the leaves, skip may take the phantom for the leaf on the path too.
+        var rightLen = len - skip;
+        var rightChildren = new Node<T>?[rightLen];
+        for (var i = 0; i < d - skip; i++) rightChildren[i] = phantom;
+        if (d >= skip) rightChildren[d - skip] = childRight;
+        if (d + 1 < len) Array.Copy(inode.Children, d + 1, rightChildren, d + 1 - skip, len - d - 1);
+        right = new InternalNode<T>(rightChildren, null, rightLen, OwnerId.None);
+    }
+
+    // The dense tree with every leaf from the one that holds `pos` on cut off,
+    // that leaf handed back. Null when nothing is left.
+    private static Node<T>? CutBefore<T>(Node<T> node, int shift, int pos, out LeafNode<T> leaf)
+    {
+        var inode = AsInternal(node);
+        var d = (pos >> shift) & Constants.RRB_MASK;
+        var childShift = shift - Constants.RRB_BITS;
+
+        Node<T>? right = null;
+        if (childShift == 0)
+            leaf = AsLeaf(inode.Children[d]!);
+        else
+            right = CutBefore(inode.Children[d]!, childShift, pos, out leaf);
+
+        var len = right == null ? d : d + 1;
+        if (len == 0) return null;
+
+        var children = new Node<T>?[len];
+        Array.Copy(inode.Children, children, d);
+        if (right != null) children[d] = right;
         return new InternalNode<T>(children, null, len, OwnerId.None);
     }
 
