@@ -80,6 +80,9 @@ public class RrbBuilder<T>
 
     internal RrbBuilder(RrbList<T> list)
     {
+        // The builder appends to a tree that starts at 0.
+        list = list.Materialized();
+
         _token = OwnerId.Next();
         _root = list.Root;
         _rootCount = list.Count - list.TailLen - list.HeadLen;
@@ -471,7 +474,7 @@ public class RrbBuilder<T>
         _token = OwnerId.None;
         _root = frozenRoot;
         
-        return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length, _head, _headLen);
+        return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length, _head, _headLen, 0);
     }
 
     // The tail for a list: the builder's own when it is exactly as long as its

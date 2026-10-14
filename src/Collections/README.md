@@ -60,8 +60,15 @@ RrbList efficiently supports split, slice, merge, indexing and index based updat
 IEnumerable and IImmutableList are implemented.
 
 Like the tail, there is a head: up to 32 items in front of the tree, so Prepend and PopFirst are as cheap as Add and
-Pop. A full head is pushed down the tree's left spine as a leaf, and an empty one takes the tree's first leaf. A list
-with no tree keeps everything in its tail, so it never has a head.
+Pop. A full head is pushed into the tree as a leaf, and an empty one takes the tree's first leaf. A list with no tree
+keeps everything in its tail, so it never has a head. A list from a builder (or Create) starts with a head.
+
+The front of a dense tree is kept dense with a Gap: the list's items start Gap slots into the tree, and the slots before
+them are filled by shared phantom subtrees, one per level. Indexing is then the dense tree's own, with Gap added to the
+index. Prepend fills the Gap from its end (growing the tree a level, with the old root as the last child, when it runs
+out), and PopFirst and drops from the front widen it, so a list used from both ends, as a deque, never gets size tables.
+Operations in the middle (Insert, RemoveAt, Split, Merge of two trees, a slice from the middle) first turn the Gap into
+the size tables a relaxed left spine would have had.
 
 # Things that have to be made better before a stable release
 

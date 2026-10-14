@@ -131,7 +131,7 @@ public struct RrbReverseEnumerator<T> : IEnumerator<T>
         if (!_inTree)
         {
             // First time entering the tree, from the start or from the tail.
-            SetupStack(_list.Root!, _list.Shift, _totalIndex - headLen);
+            SetupStack(_list.Root!, _list.Shift, _totalIndex - headLen + _list.Gap);
             _inTree = true;
         }
         else

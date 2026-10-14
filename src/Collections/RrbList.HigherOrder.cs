@@ -82,8 +82,12 @@ public sealed partial class RrbList<T>
         var lenInternal = internalNode.Len;
 
         for (var i = 0; i < lenInternal; i++)
-            // Recurse down to children
-            state = FoldNode(internalNode.Children[i]!, shift - Constants.RRB_BITS, state, func);
+        {
+            // Recurse down to children, past the phantoms of a Gap
+            var child = internalNode.Children[i]!;
+            if (child.IsPhantom()) continue;
+            state = FoldNode(child, shift - Constants.RRB_BITS, state, func);
+        }
 
         return state;
     }
@@ -161,9 +165,13 @@ public sealed partial class RrbList<T>
         var nextShift = shift - Constants.RRB_BITS;
 
         for (var i = 0; i < childCount; i++)
-            // Recurse. If child returns false (break), we propagate it up.
-            if (!IterNode(children[i]!, nextShift, action))
+        {
+            // Recurse, past the phantoms of a Gap. If child returns false (break), we propagate it up.
+            var child = children[i]!;
+            if (child.IsPhantom()) continue;
+            if (!IterNode(child, nextShift, action))
                 return false;
+        }
 
         return true;
     }
@@ -209,7 +217,7 @@ public sealed partial class RrbList<T>
         if (index < treeSize && Root != null)
         {
             var takeFromTree = Math.Min(count, treeSize - index);
-            ForEachNode(Root, Shift, index, takeFromTree, action);
+            ForEachNode(Root, Shift, index + Gap, takeFromTree, action);
 
             // Adjust remaining count and index for the tail
             count -= takeFromTree;
@@ -351,7 +359,8 @@ public sealed partial class RrbList<T>
             }
         }
 
-        return new RrbList<TResult>(newRoot, newTail, Count, Shift, TailLen, newHead, HeadLen);
+        // The tree keeps its shape, phantoms and Gap included.
+        return new RrbList<TResult>(newRoot, newTail, Count, Shift, TailLen, newHead, HeadLen, Gap);
     }
 
     // This function copies it's way down to the leaf nodes and then runs a copy of the 
@@ -359,6 +368,9 @@ public sealed partial class RrbList<T>
     // element of the RrbList.
     private static Node<TResult> MapNode<TResult>(Node<T> node, int shift, Func<T, TResult> mapper)
     {
+        // A Gap's phantoms hold no items to map: they stand for the same slots.
+        if (node.IsPhantom()) return Phantom<TResult>.At(shift);
+
         // Base case: Map values in the leaf
         if (shift == 0)
         {

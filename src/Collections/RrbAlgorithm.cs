@@ -1457,6 +1457,95 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
         return new InternalNode<T>(children, table, len, OwnerId.None);
     }
 
+    // ---------------------------------------------------------------------
+    // The Gap: a dense tree whose first slots are phantoms (see Phantom<T>).
+    // Positions here are the tree's own, Gap included.
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    ///     The dense tree with <paramref name="leaf" /> at <paramref name="pos" />,
+    ///     a leaf's start in the Gap, where a phantom leaf was. The path to it is
+    ///     copied, phantoms on it as well, and the rest is shared.
+    /// </summary>
+    internal static Node<T> PlaceLeaf<T>(Node<T> node, int shift, int pos, LeafNode<T> leaf)
+    {
+        var inode = AsInternal(node);
+        var d = (pos >> shift) & Constants.RRB_MASK;
+        var len = inode.Len;
+
+        var children = new Node<T>?[len];
+        Array.Copy(inode.Children, children, len);
+        children[d] = shift == Constants.RRB_BITS
+            ? leaf
+            : PlaceLeaf(inode.Children[d]!, shift - Constants.RRB_BITS, pos, leaf);
+
+        return new InternalNode<T>(children, null, len, OwnerId.None);
+    }
+
+    /// <summary>
+    ///     The dense tree with every leaf up to and including the one that holds
+    ///     <paramref name="pos" /> made a phantom. That leaf is handed back in
+    ///     <paramref name="leaf" />. Every child left of the path becomes a phantom
+    ///     too, so that nothing of what is dropped stays reachable. Null when the
+    ///     tree is a leaf: then it is all handed back.
+    /// </summary>
+    internal static Node<T>? PhantomUpTo<T>(Node<T> node, int shift, int pos, out LeafNode<T> leaf)
+    {
+        if (shift == 0)
+        {
+            leaf = AsLeaf(node);
+            return null;
+        }
+
+        var inode = AsInternal(node);
+        var d = (pos >> shift) & Constants.RRB_MASK;
+        var len = inode.Len;
+        var childShift = shift - Constants.RRB_BITS;
+        var phantom = Phantom<T>.At(childShift);
+
+        var children = new Node<T>?[len];
+        Array.Copy(inode.Children, children, len);
+        for (var i = 0; i < d; i++) children[i] = phantom;
+
+        if (childShift == 0)
+        {
+            leaf = AsLeaf(inode.Children[d]!);
+            children[d] = phantom;
+        }
+        else
+        {
+            children[d] = PhantomUpTo(inode.Children[d]!, childShift, pos, out leaf);
+        }
+
+        return new InternalNode<T>(children, null, len, OwnerId.None);
+    }
+
+    /// <summary>
+    ///     A root one level up from <paramref name="root" />, a dense tree with no
+    ///     Gap, with the old root as its last child and phantoms before it: a Gap of
+    ///     31 of the old root's capacity. Null when that would not fit an int index.
+    /// </summary>
+    internal static Node<T>? GrowForGap<T>(Node<T> root, ref int shift, out int gap)
+    {
+        var newShift = shift + Constants.RRB_BITS;
+
+        // The new root holds 32 << newShift slots, which must fit an int.
+        if (newShift > 25)
+        {
+            gap = 0;
+            return null;
+        }
+
+        var children = new Node<T>?[Constants.RRB_BRANCHING];
+        var phantom = Phantom<T>.At(shift);
+        for (var i = 0; i < Constants.RRB_BRANCHING - 1; i++) children[i] = phantom;
+        children[Constants.RRB_BRANCHING - 1] = root;
+
+        gap = (Constants.RRB_BRANCHING - 1) << newShift;
+        shift = newShift;
+        return new InternalNode<T>(children, null, Constants.RRB_BRANCHING, OwnerId.None);
+    }
+
     /// <summary>
     ///     How many items the first leaf of the tree holds.
     /// </summary>

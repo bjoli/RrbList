@@ -124,7 +124,7 @@ public struct RrbEnumerator<T> : IEnumerator<T>
         // 2. Traverse Tree
         if (!_inTree)
         {
-            SetupStack(_list.Root!, _list.Shift, _totalIndex - headLen);
+            SetupStack(_list.Root!, _list.Shift, _totalIndex - headLen + _list.Gap);
             _inTree = true;
         }
         else

@@ -45,6 +45,54 @@ internal abstract class Node<T>
     {
         return (Flags & NodeFlags.IsRelaxed) == 0;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsPhantom()
+    {
+        return (Flags & NodeFlags.IsPhantom) != 0;
+    }
+}
+
+/// <summary>
+///     The full subtrees that stand in for the items before a list's Gap.
+/// </summary>
+/// <remarks>
+///     A list whose tree is dense can have a Gap: the tree is then a dense
+///     tree of Gap + TreeCount items whose first Gap items are not the list's.
+///     They are made of these, one shared node per level, full of default
+///     values, so that every algorithm that indexes a dense tree indexes it
+///     as it is, with Gap added to the index. Prepend fills the Gap from its
+///     end, a leaf at a time, and PopFirst widens it. Nothing reads a phantom's
+///     items: the list's indices all lie past the Gap. Walks that visit every
+///     node skip them by their flag.
+/// </remarks>
+internal static class Phantom<T>
+{
+    // One per level, for shifts 0, 5, ... 30: as high as an int index goes.
+    private static readonly Node<T>[] Levels = MakeLevels();
+
+    private static Node<T>[] MakeLevels()
+    {
+        var levels = new Node<T>[7];
+        var leaf = new LeafNode<T>(new T[Constants.RRB_BRANCHING], Constants.RRB_BRANCHING, OwnerId.None);
+        leaf.Flags |= NodeFlags.IsPhantom | NodeFlags.IsFrozen;
+        levels[0] = leaf;
+
+        for (var i = 1; i < levels.Length; i++)
+        {
+            var children = new Node<T>?[Constants.RRB_BRANCHING];
+            Array.Fill(children, levels[i - 1]);
+            var node = new InternalNode<T>(children, null, Constants.RRB_BRANCHING, OwnerId.None);
+            node.Flags |= NodeFlags.IsPhantom | NodeFlags.IsFrozen;
+            levels[i] = node;
+        }
+
+        return levels;
+    }
+
+    /// The phantom node at `shift`: a leaf at 0.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Node<T> At(int shift) => Levels[shift / Constants.RRB_BITS];
 }
 
 [StructLayout(LayoutKind.Auto, Pack = 1)]

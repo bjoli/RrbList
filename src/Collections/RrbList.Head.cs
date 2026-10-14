@@ -42,7 +42,7 @@ public sealed partial class RrbList<T>
 
             // Case 2: No tree, and the tail is full: it becomes the tree.
             var leaf = new LeafNode<T>(ExactArray(Tail, TailLen), TailLen, OwnerId.None);
-            return new RrbList<T>(leaf, Array.Empty<T>(), Count + 1, 0, 0, [item], 1);
+            return new RrbList<T>(leaf, Array.Empty<T>(), Count + 1, 0, 0, [item], 1, 0);
         }
 
         // Case 3: The head has room.
@@ -51,13 +51,15 @@ public sealed partial class RrbList<T>
             var newHead = new T[HeadLen + 1];
             newHead[0] = item;
             if (HeadLen > 0) Array.Copy(Head!, 0, newHead, 1, HeadLen);
-            return new RrbList<T>(Root, Tail, Count + 1, Shift, TailLen, newHead, HeadLen + 1);
+            return new RrbList<T>(Root, Tail, Count + 1, Shift, TailLen, newHead, HeadLen + 1, Gap);
         }
 
-        // Case 4: The head is full, push it into the tree.
+        // Case 4: The head is full, push it into the tree: into the Gap, when
+        // the tree is dense.
         var shift = Shift;
-        var root = PushInFront(Root, TreeCount, Head!, HeadLen, ref shift);
-        return new RrbList<T>(root, Tail, Count + 1, shift, TailLen, [item], 1);
+        var gap = Gap;
+        var root = PushInFront(Root, TreeCount, ref gap, Head!, HeadLen, ref shift);
+        return new RrbList<T>(root, Tail, Count + 1, shift, TailLen, [item], 1, gap);
     }
 
     /**
@@ -89,7 +91,7 @@ public sealed partial class RrbList<T>
         {
             var newHead = new T[headLen - 1];
             Array.Copy(Head!, 1, newHead, 0, headLen - 1);
-            return new RrbList<T>(Root, Tail, Count - 1, Shift, TailLen, newHead, headLen - 1);
+            return new RrbList<T>(Root, Tail, Count - 1, Shift, TailLen, newHead, headLen - 1, Gap);
         }
 
         if (Count == 0) throw new InvalidOperationException("List is empty");
@@ -114,7 +116,7 @@ public sealed partial class RrbList<T>
             var newLen = headLen - n;
             var newHead = new T[newLen];
             Array.Copy(Head!, n, newHead, 0, newLen);
-            return new RrbList<T>(Root, Tail, Count - n, Shift, TailLen, newHead, newLen);
+            return new RrbList<T>(Root, Tail, Count - n, Shift, TailLen, newHead, newLen, Gap);
         }
 
         return DropFrontSlow(n);
@@ -138,9 +140,16 @@ public sealed partial class RrbList<T>
         var rest = HeadLen == 0 ? this : Headless();
         var fromTree = n - HeadLen;
 
-        // What is left of the tree's first leaf becomes the head.
-        if (fromTree < RrbAlgorithm.FirstLeafLen(rest.Root!, rest.Shift))
-            return rest.PromoteFirstLeaf(fromTree);
+        if (fromTree < rest.TreeCount)
+        {
+            // A dense tree widens its Gap, and what is left of the leaf the
+            // drop ends in becomes the head.
+            if (rest.Root!.IsDense()) return rest.DropTreeFront(fromTree);
+
+            // A relaxed one gives up its first leaf, when the drop ends in it.
+            if (fromTree < RrbAlgorithm.FirstLeafLen(rest.Root, rest.Shift))
+                return rest.PromoteFirstLeaf(fromTree);
+        }
 
         return rest.Slice(fromTree, rest.Count - fromTree);
     }
@@ -188,7 +197,7 @@ public sealed partial class RrbList<T>
     internal RrbList<T> Headless()
     {
         if (HeadLen == 0) return this;
-        return new RrbList<T>(Root, Tail, Count - HeadLen, Shift, TailLen);
+        return new RrbList<T>(Root, Tail, Count - HeadLen, Shift, TailLen, null, 0, Gap);
     }
 
     // `rest`, which has no head, with `headLen` items of `head` in front of it.
@@ -200,7 +209,7 @@ public sealed partial class RrbList<T>
         var count = rest.Count + headLen;
 
         if (rest.Root != null)
-            return new RrbList<T>(rest.Root, rest.Tail, count, rest.Shift, rest.TailLen, head, headLen);
+            return new RrbList<T>(rest.Root, rest.Tail, count, rest.Shift, rest.TailLen, head, headLen, rest.Gap);
 
         if (headLen + rest.TailLen <= Constants.RRB_BRANCHING)
         {
@@ -210,13 +219,138 @@ public sealed partial class RrbList<T>
             return new RrbList<T>(null, newTail, count, 0, count);
         }
 
-        var leaf = new LeafNode<T>(ExactArray(head!, headLen), headLen, OwnerId.None);
-        return new RrbList<T>(leaf, rest.Tail, count, 0, rest.TailLen);
+        // Too many for one leaf: a full leaf for the tree, and the rest in the
+        // tail. A part-full leaf for root would have the next leaf pushed
+        // after it, and the tree would need size tables from then on.
+        // A full head is that leaf as it is, and the tail stays as it is.
+        if (headLen == Constants.RRB_BRANCHING)
+        {
+            var whole = new LeafNode<T>(ExactArray(head!, headLen), headLen, OwnerId.None);
+            return new RrbList<T>(whole, rest.Tail, count, 0, rest.TailLen);
+        }
+
+        // Otherwise the leaf is the head and the start of the tail.
+        var fromTail = Constants.RRB_BRANCHING - headLen;
+        var rootItems = new T[Constants.RRB_BRANCHING];
+        Array.Copy(head!, 0, rootItems, 0, headLen);
+        Array.Copy(rest.Tail, 0, rootItems, headLen, fromTail);
+
+        var tailLen = rest.TailLen - fromTail;
+        var tail = new T[tailLen];
+        Array.Copy(rest.Tail, fromTail, tail, 0, tailLen);
+
+        var leaf = new LeafNode<T>(rootItems, Constants.RRB_BRANCHING, OwnerId.None);
+        return new RrbList<T>(leaf, tail, count, 0, tailLen);
+    }
+
+    // This list, with no head and a dense tree, without its first `k` items,
+    // for 0 <= k < TreeCount. Every leaf up to the one the drop ends in becomes
+    // a phantom, the Gap grows to the end of that leaf, and what is left of it
+    // becomes the head. The tree stays dense, where taking leaves off a dense
+    // left spine without a Gap would give it size tables.
+    internal RrbList<T> DropTreeFront(int k)
+    {
+        var pos = Gap + k;
+        var root = RrbAlgorithm.PhantomUpTo(Root!, Shift, pos, out var leaf);
+
+        var start = pos & Constants.RRB_MASK;
+        var headLen = leaf.Len - start;
+        var treeItems = TreeCount - k - headLen;
+        var gap = (pos & ~Constants.RRB_MASK) + Constants.RRB_BRANCHING;
+        var shift = Shift;
+        root = NormalizeGap(root, ref shift, ref gap, treeItems);
+
+        var rest = root == null
+            ? new RrbList<T>(null, Tail, TailLen, 0, TailLen)
+            : new RrbList<T>(root, Tail, treeItems + TailLen, shift, TailLen, null, 0, gap);
+
+        T[] head;
+        if (start == 0)
+        {
+            head = ExactArray(leaf.Items, leaf.Len);
+        }
+        else
+        {
+            head = new T[headLen];
+            Array.Copy(leaf.Items, start, head, 0, headLen);
+        }
+
+        return WithHead(head, headLen, rest);
+    }
+
+    // The same list with Gap 0: the phantoms cut away and the left spine given
+    // size tables. What an operation that does not keep a Gap starts from.
+    internal RrbList<T> Materialized()
+    {
+        if (Gap == 0) return this;
+        var shift = Shift;
+        var gap = Gap;
+        var root = MaterializeTree(Root!, ref shift, ref gap, TreeCount);
+        return new RrbList<T>(root, Tail, Count, shift, TailLen, Head, HeadLen, 0);
+    }
+
+    // `root` with its Gap cut away: SliceLeftRec gives the left spine size
+    // tables, and LowerRoot takes off the height it no longer needs.
+    private static Node<T>? MaterializeTree(Node<T> root, ref int shift, ref int gap, int treeItems)
+    {
+        var cut = RrbAlgorithm.SliceLeftRec(root, gap, shift);
+        gap = 0;
+        return RrbAlgorithm.LowerRoot(cut, ref shift, treeItems);
+    }
+
+    // A tree with a Gap, holding `treeItems` of the list's items, as the Gap
+    // rules have it: null when it holds none; the root's children that are all
+    // Gap cut off, and a root with one child given up for the child, so that
+    // the tree is no taller than its Gap and items need; and with no Gap at
+    // all when the tree is not dense, or would still be more than a level
+    // taller than its items need.
+    internal static Node<T>? NormalizeGap(Node<T>? root, ref int shift, ref int gap, int treeItems)
+    {
+        if (root == null || treeItems == 0)
+        {
+            shift = 0;
+            gap = 0;
+            return null;
+        }
+
+        if (gap == 0) return root;
+        if (root.IsRelaxed()) return MaterializeTree(root, ref shift, ref gap, treeItems);
+
+        while (shift > 0)
+        {
+            var node = RrbAlgorithm.AsInternal(root);
+
+            // Children that are all Gap.
+            var cut = gap >> shift;
+            if (cut > 0)
+            {
+                var len = node.Len - cut;
+                var children = new Node<T>?[len];
+                Array.Copy(node.Children, cut, children, 0, len);
+                node = new InternalNode<T>(children, null, len, OwnerId.None);
+                root = node;
+                gap -= cut << shift;
+            }
+
+            if (node.Len != 1) break;
+
+            root = node.Children[0]!;
+            shift -= Constants.RRB_BITS;
+        }
+
+        var least = 0;
+        for (var capacity = (long)Constants.RRB_BRANCHING; capacity < treeItems; capacity <<= Constants.RRB_BITS)
+            least++;
+        if (gap > 0 && shift / Constants.RRB_BITS > least + 1)
+            return MaterializeTree(root, ref shift, ref gap, treeItems);
+
+        return root;
     }
 
     // This list without its first `drop` items, which are all in the tree's
     // first leaf: what is left of that leaf becomes the head. Requires an
-    // empty head, a tree, and `drop` at most the first leaf's length.
+    // empty head, a relaxed tree (so no Gap), and `drop` at most the first
+    // leaf's length.
     internal RrbList<T> PromoteFirstLeaf(int drop)
     {
         var shift = Shift;
@@ -245,13 +379,50 @@ public sealed partial class RrbList<T>
         return WithHead(head, headLen, rest);
     }
 
-    // `root`, holding `treeSize` items, with the first `len` items of `items`
-    // in front of it as a leaf. A full leaf goes down the left spine. A part
-    // full one, or one the left spine has no room for, goes through Concat,
-    // which repacks what it has to.
-    internal static Node<T> PushInFront(Node<T> root, int treeSize, T[] items, int len, ref int shift)
+    // `root`, holding `treeSize` of the list's items after a Gap of `gap`,
+    // with the first `len` items of `items` in front of them as a leaf.
+    //
+    // A dense tree takes a full leaf into its Gap, and when there is none, a
+    // root above with the old root as its last child gives it one: the tree
+    // stays dense. A lone leaf, or a leaf parent with room, takes the leaf in
+    // front without a Gap, as both stay dense that way too. Otherwise a full
+    // leaf goes down the left spine (TryPrependLeaf), and a part full one, or
+    // one the left spine has no room for, goes through Concat, which repacks
+    // what it has to.
+    internal static Node<T> PushInFront(Node<T> root, int treeSize, ref int gap, T[] items, int len, ref int shift)
     {
         var leaf = new LeafNode<T>(ExactArray(items, len), len, OwnerId.None);
+
+        if (len == Constants.RRB_BRANCHING && root.IsDense())
+        {
+            if (gap >= Constants.RRB_BRANCHING)
+            {
+                gap -= Constants.RRB_BRANCHING;
+                return RrbAlgorithm.PlaceLeaf(root, shift, gap, leaf);
+            }
+
+            if (shift == 0 || (shift == Constants.RRB_BITS && root.Len < Constants.RRB_BRANCHING))
+            {
+                var denseShift = shift;
+                var dense = RrbAlgorithm.TryPrependLeaf(root, leaf, ref denseShift);
+                if (dense != null)
+                {
+                    shift = denseShift;
+                    return dense;
+                }
+            }
+
+            var grownShift = shift;
+            var grown = RrbAlgorithm.GrowForGap(root, ref grownShift, out var grownGap);
+            if (grown != null)
+            {
+                shift = grownShift;
+                gap = grownGap - Constants.RRB_BRANCHING;
+                return RrbAlgorithm.PlaceLeaf(grown, shift, gap, leaf);
+            }
+        }
+
+        if (gap > 0) root = MaterializeTree(root, ref shift, ref gap, treeSize)!;
 
         if (len == Constants.RRB_BRANCHING)
         {
