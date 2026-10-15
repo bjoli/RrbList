@@ -726,6 +726,10 @@ public sealed partial class RrbList<T>
         if (other.Count == 0) return this;
         if (Count == 0) return other;
 
+        // Two lists whose positions line up, as a split's halves do, meet
+        // without moving an item, and the tree stays dense (RrbList.Join.cs).
+        if (other.Root != null && TryAlignedMerge(other) is { } aligned) return aligned;
+
         // Merging a tree with just a tail (other.Root == null)
         // This avoids the Concat overhead for common "AppendAll" patterns.
         if (other.Root == null)

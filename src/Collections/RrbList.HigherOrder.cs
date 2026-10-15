@@ -363,6 +363,55 @@ public sealed partial class RrbList<T>
         return new RrbList<TResult>(newRoot, newTail, Count, Shift, TailLen, newHead, HeadLen, Gap);
     }
 
+    /**
+     * <summary>
+     * A list of the same shape as this one, holding <paramref name="items" /> in order: what Map
+     * makes, for a caller that makes the items itself. Head, leaves, phantoms, size tables and
+     * Gap are as this list's, so a split's halves made this way still merge into a dense tree.
+     * </summary>
+     * <param name="items">The new items, as many as this list holds. They are copied.</param>
+     */
+    public RrbList<TResult> MapShape<TResult>(TResult[] items)
+    {
+        if (items == null) throw new ArgumentNullException(nameof(items));
+        if (items.Length != Count) throw new ArgumentException("MapShape takes as many items as the list holds");
+        if (Count == 0) return RrbList<TResult>.Empty;
+
+        var at = 0;
+        TResult[] Take(int n)
+        {
+            if (n == 0) return Array.Empty<TResult>();
+            var part = new TResult[n];
+            Array.Copy(items, at, part, 0, n);
+            at += n;
+            return part;
+        }
+
+        var newHead = Take(HeadLen);
+        var newRoot = Root == null ? null : ShapeNode(Root, Shift, Take);
+        var newTail = Take(TailLen);
+        return new RrbList<TResult>(newRoot, newTail, Count, Shift, TailLen, newHead, HeadLen, Gap);
+    }
+
+    // The node with each leaf's items taken in order from `take`.
+    private static Node<TResult> ShapeNode<TResult>(Node<T> node, int shift, Func<int, TResult[]> take)
+    {
+        if (node.IsPhantom()) return Phantom<TResult>.At(shift);
+
+        if (shift == 0)
+        {
+            var leaf = RrbAlgorithm.AsLeaf(node);
+            return new LeafNode<TResult>(take(leaf.Len), leaf.Len, OwnerId.None);
+        }
+
+        var internalNode = RrbAlgorithm.AsInternal(node);
+        var newChildren = new Node<TResult>?[internalNode.Len];
+        for (var i = 0; i < internalNode.Len; i++)
+            newChildren[i] = ShapeNode(internalNode.Children[i]!, shift - Constants.RRB_BITS, take);
+
+        return new InternalNode<TResult>(newChildren, internalNode.SizeTable, internalNode.Len, OwnerId.None);
+    }
+
     // This function copies it's way down to the leaf nodes and then runs a copy of the 
     // leaf with mapper run on every element. This is by far the fastest way to run a function on each 
     // element of the RrbList.

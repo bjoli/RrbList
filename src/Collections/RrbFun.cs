@@ -42,6 +42,8 @@ public static class RrbFun
     // --- Higher-order functions ---
     public static RrbList<TResult> Map<T, TResult>(RrbList<T> list, Func<T, TResult> mapper) => list.Map(mapper);
 
+    public static RrbList<TResult> MapShape<T, TResult>(RrbList<T> list, TResult[] items) => list.MapShape(items);
+
     public static RrbList<T> Filter<T>(RrbList<T> list, Func<T, bool> predicate) => list.Filter(predicate);
 
     public static TState Fold<T, TState>(RrbList<T> list, TState seed, Func<T, TState, TState> func) => list.Fold(seed, func);
