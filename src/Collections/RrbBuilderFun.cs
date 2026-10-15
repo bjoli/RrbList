@@ -21,6 +21,16 @@ public static class RrbBuilderFun
         return builder;
     }
     
+    public static T Pop<T>(RrbBuilder<T> builder) => builder.Pop();
+
+    public static RrbBuilder<T> Prepend<T>(RrbBuilder<T> builder, T item)
+    {
+        builder.Prepend(item);
+        return builder;
+    }
+
+    public static T PopFirst<T>(RrbBuilder<T> builder) => builder.PopFirst();
+
     public static T Get<T>(RrbBuilder<T> builder, int index) => builder[index];
     
     public static int Count<T>(RrbBuilder<T> builder) => builder.Count;

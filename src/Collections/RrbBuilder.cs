@@ -15,10 +15,17 @@ public class RrbBuilder<T>
     // The head of the lists the builder makes: items in front of the tree.
     // The first leaf the builder fills becomes the head when the tree is made,
     // so that a list from a builder reads its front in one array and the tree
-    // behind it is laid out from its first slot, dense. The array is shared
-    // with the lists made, and copied before it is changed. Null when empty.
+    // behind it is laid out from its first slot, dense. Null when empty.
+    //
+    // The items are at _head[_headStart .. _headStart + _headLen). A head the
+    // builder owns is a leaf's worth with its items at the end, so that
+    // Prepend writes in front of them and PopFirst steps past one. A head
+    // shared with a list starts at 0, as a list's does, and is copied before
+    // it is changed. A head exists only with a tree, as in a list.
     private T[]? _head;
+    private int _headStart;
     private int _headLen;
+    private bool _headShared;
     
     // Full leaves wait here until ToImmutable puts them in the tree. Chunks of
     // a fixed size rather than one array that doubles, so that a big vec never
@@ -80,15 +87,33 @@ public class RrbBuilder<T>
 
     internal RrbBuilder(RrbList<T> list)
     {
+        _currentTail = Array.Empty<T>();
+        Load(list);
+    }
+
+    // The builder's state set to `list`, with no pending leaves. The tree is
+    // shared, and the builder owns none of it.
+    private void Load(RrbList<T> list)
+    {
         // The builder appends to a tree that starts at 0.
         list = list.Materialized();
 
-        _token = OwnerId.Next();
+        if (_totalLeaves > 0)
+        {
+            _chunks?.Clear();
+            Array.Clear(_currentChunk!, 0, _chunkIndex);
+            _chunkIndex = 0;
+            _totalLeaves = 0;
+        }
+
+        _token = OwnerId.None;
         _root = list.Root;
-        _rootCount = list.Count - list.TailLen - list.HeadLen;
+        _rootCount = list.TreeCount;
         _shift = list.Shift;
         _head = list.Head;
+        _headStart = 0;
         _headLen = list.HeadLen;
+        _headShared = list.HeadLen > 0;
         
         if (list.TailLen == list.Tail.Length)
         {
@@ -99,6 +124,7 @@ public class RrbBuilder<T>
         {
             _currentTail = new T[list.TailLen];
             Array.Copy(list.Tail, _currentTail, list.TailLen);
+            _tailShared = false;
         }
         _currentTailLen = list.TailLen;
     }
@@ -151,7 +177,7 @@ public class RrbBuilder<T>
     {
         get
         {
-            if (index < _headLen) return _head![index];
+            if (index < _headLen) return _head![_headStart + index];
             index -= _headLen;
 
             if (index < _rootCount)
@@ -212,13 +238,10 @@ public class RrbBuilder<T>
     {
          if (index < 0 || index >= Count) throw new IndexOutOfRangeException();
 
-         // The head is shared with the lists made, so it is copied first.
          if (index < _headLen)
          {
-             var head = new T[_headLen];
-             Array.Copy(_head!, head, _headLen);
-             head[index] = value;
-             _head = head;
+             if (_headShared) OwnHead();
+             _head![_headStart + index] = value;
              return;
          }
 
@@ -474,7 +497,133 @@ public class RrbBuilder<T>
         _token = OwnerId.None;
         _root = frozenRoot;
         
-        return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length, _head, _headLen, 0);
+        return new RrbList<T>(frozenRoot, finalTail, totalCount, _shift, finalTail.Length, TakeHead(), _headLen, 0);
+    }
+
+    // The head for a list: the builder's own when it starts at 0, which the
+    // builder then shares, and otherwise a copy.
+    private T[]? TakeHead()
+    {
+        if (_headLen == 0) return null;
+        if (_headStart == 0)
+        {
+            _headShared = true;
+            return _head;
+        }
+
+        var head = new T[_headLen];
+        Array.Copy(_head!, _headStart, head, 0, _headLen);
+        return head;
+    }
+
+    // The head copied into a leaf's worth that the builder owns, its items at
+    // the end.
+    private void OwnHead()
+    {
+        var own = new T[Constants.RRB_BRANCHING];
+        var start = Constants.RRB_BRANCHING - _headLen;
+        if (_headLen > 0) Array.Copy(_head!, _headStart, own, start, _headLen);
+        _head = own;
+        _headStart = start;
+        _headShared = false;
+    }
+
+    // ---------------------------------------------------------------------
+    // The ends
+    // ---------------------------------------------------------------------
+    //
+    // Each works in the tail or the head, or for Pop in the leaves waiting for
+    // the tree, without touching the tree. When those have nothing to give,
+    // or the head is full, the builder becomes a list, the list's own
+    // operation is done, and the builder is loaded from the result: at most
+    // once in a leaf's worth of operations at that end.
+
+    /// <summary>Removes the last item, and answers it.</summary>
+    public T Pop()
+    {
+        if (_currentTailLen == 0)
+        {
+            if (_totalLeaves == 0) return PopSlow();
+            TakeLastLeafAsTail();
+        }
+
+        if (_tailShared) UnshareTail(_currentTail.Length);
+        var i = --_currentTailLen;
+        var item = _currentTail[i];
+        _currentTail[i] = default!;
+        return item;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private T PopSlow()
+    {
+        if (Count == 0) throw new InvalidOperationException("The builder is empty");
+        var list = ToImmutable();
+        var item = list[list.Count - 1];
+        Load(list.Pop());
+        return item;
+    }
+
+    // The last leaf waiting for the tree becomes the tail. The tail is empty.
+    private void TakeLastLeafAsTail()
+    {
+        if (_chunkIndex == 0)
+        {
+            var last = _chunks!.Count - 1;
+            _currentChunk = _chunks[last];
+            _chunks.RemoveAt(last);
+            _chunkIndex = ChunkSize;
+        }
+
+        var leaf = _currentChunk![--_chunkIndex];
+        _currentChunk[_chunkIndex] = null!;
+        _totalLeaves--;
+
+        _currentTail = leaf.Items;
+        _currentTailLen = leaf.Len;
+        _tailShared = _token == OwnerId.None || leaf.Owner != _token;
+    }
+
+    /// <summary>Adds an item in front of the first.</summary>
+    public void Prepend(T item)
+    {
+        if (_root != null && _headLen < Constants.RRB_BRANCHING)
+        {
+            if (_headShared || _headStart == 0) OwnHead();
+            _head![--_headStart] = item;
+            _headLen++;
+            return;
+        }
+
+        PrependSlow(item);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void PrependSlow(T item) => Load(ToImmutable().Prepend(item));
+
+    /// <summary>Removes the first item, and answers it.</summary>
+    public T PopFirst()
+    {
+        if (_headLen > 0)
+        {
+            var item = _head![_headStart];
+            if (!_headShared) _head[_headStart] = default!;
+            _headStart++;
+            _headLen--;
+            return item;
+        }
+
+        return PopFirstSlow();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private T PopFirstSlow()
+    {
+        if (Count == 0) throw new InvalidOperationException("The builder is empty");
+        var list = ToImmutable();
+        var item = list[0];
+        Load(list.PopFirst());
+        return item;
     }
 
     // The tail for a list: the builder's own when it is exactly as long as its
@@ -507,7 +656,9 @@ public class RrbBuilder<T>
             {
                 var first = GetLeaf(globalLeafCursor++);
                 _head = first.Items.Length == first.Len ? first.Items : first.Items[..first.Len];
+                _headStart = 0;
                 _headLen = first.Len;
+                _headShared = true;
             }
 
             // Optimization: Directly grab the first leaf
