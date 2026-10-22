@@ -4,12 +4,15 @@ using System.Runtime.CompilerServices;
 namespace Collections;
 
 [InlineArray(8)]
+[NonUserCode]
 internal struct EnumeratorPathBuffer<T> { private Node<T>? _element0; }
 
 [InlineArray(8)]
+[NonUserCode]
 internal struct EnumeratorIndexBuffer { private int _element0; }
 
 
+[NonUserCode]
 public struct RrbEnumerator<T> : IEnumerator<T>
 {
     private readonly RrbList<T> _list;

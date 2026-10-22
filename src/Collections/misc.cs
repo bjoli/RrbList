@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 namespace Collections;
 
 #pragma warning disable CS8981
+[NonUserCode]
 public static class misc
 {
     
@@ -22,6 +23,7 @@ public static class misc
 }
 
 [method: MethodImpl(MethodImplOptions.AggressiveInlining)]
+[NonUserCode]
 internal ref struct ArrayPoolScope<T>(int length)
 {
     private T[]? _array = ArrayPool<T>.Shared.Rent(length);

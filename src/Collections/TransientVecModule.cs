@@ -3,6 +3,7 @@ namespace Collections;
 /// Bjolang's TransientVec: a builder under a type of its own, so that it and
 /// VecBuilder are different types in Bjolang. It adds nothing: the ends and
 /// the sharing are the builder's.
+[NonUserCode]
 public sealed class RrbTransient<T> : RrbBuilder<T>
 {
     public RrbTransient()
@@ -16,6 +17,7 @@ public sealed class RrbTransient<T> : RrbBuilder<T>
 
 /// What Bjolang's transientvec- functions call: a transient changed in place
 /// at both ends and at any index, and turned into a list in O(1).
+[NonUserCode]
 public static class TransientVecModule
 {
     public static RrbTransient<T> Empty<T>() => new RrbTransient<T>();

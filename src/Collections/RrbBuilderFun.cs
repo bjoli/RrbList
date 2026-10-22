@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 namespace Collections;
 
+[NonUserCode]
 public static class RrbBuilderFun
 {
     public static RrbBuilder<T> Empty<T>() => new RrbBuilder<T>();

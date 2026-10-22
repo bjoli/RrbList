@@ -18,6 +18,7 @@ namespace Collections;
 // Layout: 
 // [Header: 16B] + [Ref: 8B] + [Owner: 6B] + [Len: 1B] + [Flags: 1B] = 32 Bytes
 [StructLayout(LayoutKind.Auto, Pack = 1)]
+[NonUserCode]
 internal abstract class Node<T>
 {
     // Note: The specific "Children" or "Items" reference is defined in subclasses,
@@ -66,6 +67,7 @@ internal abstract class Node<T>
 ///     items: the list's indices all lie past the Gap. Walks that visit every
 ///     node skip them by their flag.
 /// </remarks>
+[NonUserCode]
 internal static class Phantom<T>
 {
     // One per level, for shifts 0, 5, ... 30: as high as an int index goes.
@@ -96,6 +98,7 @@ internal static class Phantom<T>
 }
 
 [StructLayout(LayoutKind.Auto, Pack = 1)]
+[NonUserCode]
 internal sealed class LeafNode<T> : Node<T>
 {
     public static readonly LeafNode<T> Empty = new(0, OwnerId.None);
@@ -171,6 +174,7 @@ internal sealed class LeafNode<T> : Node<T>
 }
 
 [StructLayout(LayoutKind.Auto, Pack = 1)]
+[NonUserCode]
 internal sealed class InternalNode<T> : Node<T>
 {
     public readonly Node<T>?[] Children; // Reference (8 bytes)

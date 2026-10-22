@@ -13,6 +13,7 @@ using System.Runtime.InteropServices;
 
 namespace Collections;
 
+[NonUserCode]
 internal static class Constants
 {
     public const int RRB_BITS = 5;
@@ -34,6 +35,7 @@ internal static class Constants
 }
 
 [StructLayout(LayoutKind.Auto, Pack = 1)]
+[NonUserCode]
 internal readonly struct OwnerId(uint id, ushort gen) : IEquatable<OwnerId>
 {
 

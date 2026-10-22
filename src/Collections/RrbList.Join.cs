@@ -172,6 +172,7 @@ public sealed partial class RrbList<T>
 
     // A dense tree, its height, and how far its positions are moved in the
     // joined tree.
+    [NonUserCode]
     private readonly record struct Placed(Node<T>? Root, int Shift, long Move)
     {
         // Whether the joined tree may hold this tree's nodes at `shift` as they
@@ -200,6 +201,7 @@ public sealed partial class RrbList<T>
 
     // The two trees and where they meet, in the joined tree's positions.
     // Positions before `gapEnd` are the joined tree's Gap.
+    [NonUserCode]
     private readonly struct AlignedJoin(
         Placed left, long gapEnd, Placed right,
         long seamAt, int seam, long end, LeafNode<T>? seamLeaf)

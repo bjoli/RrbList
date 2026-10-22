@@ -58,7 +58,7 @@ public sealed partial class RrbList<T>
         
         // Start iterating from index 1. 
         // ForEach will skip the first element in O(log N) time.
-        this.ForEach(item => state = func(item, state), index: 1);
+        this.ForEach([NonUserCode] (item) => state = func(item, state), index: 1);
         
         return state;
     }
@@ -378,6 +378,7 @@ public sealed partial class RrbList<T>
         if (Count == 0) return RrbList<TResult>.Empty;
 
         var at = 0;
+        [NonUserCode]
         TResult[] Take(int n)
         {
             if (n == 0) return Array.Empty<TResult>();
@@ -459,7 +460,7 @@ public sealed partial class RrbList<T>
     public RrbList<T> Filter(Func<T, bool> filter)
     {
         var builder = new RrbBuilder<T>();
-        this.ForEach(elem =>
+        this.ForEach([NonUserCode] (elem) =>
         {
             if (filter(elem))
             {
@@ -472,7 +473,7 @@ public sealed partial class RrbList<T>
     public T? Find(Func<T, bool> predicate)
     {
         T? res = default(T);
-        Iter(elem =>
+        Iter([NonUserCode] (elem) =>
         {
             if (predicate(elem))
             {

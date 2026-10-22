@@ -7,6 +7,7 @@ namespace Collections;
 // are there, which is the usual case, and the rest drops them from the head
 // (see DropFront), so a loop of `(a, rest)` matches costs about a PopFirst
 // per step.
+[NonUserCode]
 public sealed partial class RrbList<T>
 {
     /// <summary>

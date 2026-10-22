@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
+[NonUserCode]
 public struct RrbReverseEnumerator<T> : IEnumerator<T>
 {
     private readonly RrbList<T> _list;

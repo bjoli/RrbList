@@ -167,7 +167,7 @@ public sealed partial class RrbList<T>
      */
     public bool Contains(T item)
     {
-        return !Iter(x =>
+        return !Iter([NonUserCode] (x) =>
         {
             if (EqualityComparer<T>.Default.Equals(x, item)) return false;
 

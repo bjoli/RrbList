@@ -6,6 +6,7 @@ namespace Collections;
 /// allocated until it is needed: the tail, a leaf's worth, comes with the
 /// first item, and the array that collects full leaves with the first leaf,
 /// growing 4, 8, 16 and on up to a chunk.
+[NonUserCode]
 public class RrbBuilder<T>
 {
     private Node<T>? _root;

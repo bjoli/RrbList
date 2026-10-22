@@ -5,6 +5,7 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Collections;
 
+[NonUserCode]
 internal static class RrbAlgorithm
 {
     public static Node<T> Update<T>(Node<T> root, int index, T value, int shift, OwnerId token)
@@ -2412,6 +2413,7 @@ private static InternalNode<T> ExecuteConcatPlan<T>(ReadOnlySpan<Node<T>> all, R
     }
 
     // Helper return struct to avoid Tuple allocation
+    [NonUserCode]
     internal readonly struct InsertResult<T>(Node<T> newNode, Node<T>? overflow = null)
     {
         public readonly Node<T> NewNode = newNode;

@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 
 namespace Collections;
 
+[NonUserCode]
 public static class RrbList
 {
     /// <summary>

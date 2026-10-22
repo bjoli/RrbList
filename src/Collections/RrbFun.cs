@@ -7,6 +7,7 @@ namespace Collections;
 /// Provides static functional-style helpers for <see cref="RrbList{T}"/>,
 /// where the first argument is the list.
 /// </summary>
+[NonUserCode]
 public static class RrbFun
 {
     // --- Creation ---
