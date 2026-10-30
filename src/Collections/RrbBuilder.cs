@@ -407,6 +407,31 @@ public class RrbBuilder<T>
         _currentTailLen = remaining;
     }
 
+    // Like AddRange, for many short ranges in turn. AddRange leaves a tail
+    // exactly as long as what is in it, so that ToImmutable can hand it over,
+    // and the next range then copies it into a tail of a leaf's worth. Here
+    // the tail is always a leaf's worth: each item is copied once, and
+    // ToImmutable copies the last tail once.
+    internal void AppendRange(ReadOnlySpan<T> items)
+    {
+        if (items.Length == 0) return;
+        if (_tailShared || _currentTail.Length < Constants.RRB_BRANCHING) UnshareTail(Constants.RRB_BRANCHING);
+
+        while (true)
+        {
+            int take = Math.Min(Constants.RRB_BRANCHING - _currentTailLen, items.Length);
+            items.Slice(0, take).CopyTo(_currentTail.AsSpan(_currentTailLen));
+            _currentTailLen += take;
+            items = items.Slice(take);
+            if (items.Length == 0) return;
+
+            // The tail is full, and more follows.
+            PushTailAsLeaf();
+            _currentTail = new T[Constants.RRB_BRANCHING];
+            _currentTailLen = 0;
+        }
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void AddLeaf(LeafNode<T> leaf)
     {
