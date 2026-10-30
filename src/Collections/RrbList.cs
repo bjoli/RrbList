@@ -316,6 +316,22 @@ public sealed partial class RrbList<T>
         return leaf.Items;
     }
 
+    /// <summary>
+    ///     True if the root of the tree has a size table.
+    /// </summary>
+    /// <remarks>
+    ///     Then <see cref="LeafAt"/> searches a size table at each relaxed
+    ///     level, and a walk does better with a <see cref="TreePath{T}"/>. A
+    ///     dense tree is found by shifts, and LeafAt is as fast as a path.
+    /// </remarks>
+    public bool TreeIsRelaxed => Root != null && Root.IsRelaxed() && Gap == 0;
+
+    /// <summary>
+    ///     True if element <paramref name="index"/> is in the tree, not in the
+    ///     head or the tail.
+    /// </summary>
+    public bool InTree(int index) => index >= HeadLen && index < Count - TailLen;
+
     /**
      * <summary>
      *     Copies a range of elements from the RrbList to a compatible one-dimensional array.
