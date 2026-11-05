@@ -39,6 +39,7 @@ public static class RrbFun
     public static RrbList<T> Merge<T>(RrbList<T> list, RrbList<T> other, bool pure = false) => list.Merge(other, pure);
 
     public static (RrbList<T> Left, RrbList<T> Right) Split<T>(RrbList<T> list, int index) => list.Split(index);
+    public static RrbList<T>[] SplitAt<T>(RrbList<T> list, int[] points) => list.SplitAt(points);
 
     // --- Higher-order functions ---
     public static RrbList<TResult> Map<T, TResult>(RrbList<T> list, Func<T, TResult> mapper) => list.Map(mapper);

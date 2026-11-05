@@ -862,6 +862,41 @@ public sealed partial class RrbList<T>
 
     /**
      * <summary>
+     *     Splits the list at several indices: one more part than there are points.
+     *     Part i holds the items from points[i-1] up to points[i], with 0 before the first point and
+     *     Count after the last. The parts share the list's nodes, as <see cref="Split" /> does.
+     * </summary>
+     * <param name="points">The indices, in ascending order. Two equal points give an empty part.</param>
+     * <exception cref="ArgumentException">When the points are not in ascending order.</exception>
+     * <exception cref="ArgumentOutOfRangeException">When a point is outside 0..Count.</exception>
+     */
+    public RrbList<T>[] SplitAt(ReadOnlySpan<int> points)
+    {
+        var prev = 0;
+        foreach (var p in points)
+        {
+            if (p < 0 || p > Count) throw new ArgumentOutOfRangeException(nameof(points), p, "a point is outside the list");
+            if (p < prev) throw new ArgumentException("the points are not in ascending order", nameof(points));
+            prev = p;
+        }
+
+        // From the right: each split cuts the part that is left of the points done so far,
+        // so every cut is one Split of a smaller list.
+        var parts = new RrbList<T>[points.Length + 1];
+        var rest = this;
+        for (var i = points.Length - 1; i >= 0; i--)
+        {
+            var (left, right) = rest.Split(points[i]);
+            parts[i + 1] = right;
+            rest = left;
+        }
+
+        parts[0] = rest;
+        return parts;
+    }
+
+    /**
+     * <summary>
      *     Splits the list into two at the specified index.
      * </summary>
      * <param name="index">The index at which to split the list.</param>

@@ -190,6 +190,70 @@ public class HeadTests
         }
     }
 
+    // A head and a relaxed spine (Prepended), a dense tree (Create), and a relaxed middle
+    // (Merge of lengths that are not leaf multiples).
+    private static IEnumerable<RrbList<int>> SplitAtLists()
+    {
+        yield return RrbList<int>.Empty;
+        yield return RrbList<int>.Create(Enumerable.Range(0, 20).ToArray());
+        yield return Prepended(1100).Merge(RrbList<int>.Create(Enumerable.Range(1100, 50).ToArray()));
+        yield return RrbList<int>.Create(Enumerable.Range(0, 100_000).ToArray());
+        var relaxed = RrbList<int>.Empty;
+        var next = 0;
+        foreach (var len in new[] { 7, 300, 45, 1000, 33, 5000, 1 })
+        {
+            relaxed = relaxed.Merge(RrbList<int>.Create(Enumerable.Range(next, len).ToArray()));
+            next += len;
+        }
+        yield return relaxed;
+    }
+
+    [Test]
+    public void SplitAt_PartsAreTheListInOrder([Values(1, 2, 3, 7, 96)] int k)
+    {
+        foreach (var l in SplitAtLists())
+        {
+            var expected = Enumerable.Range(0, l.Count).ToList();
+            var points = Enumerable.Range(1, k - 1).Select(i => (int)((long)l.Count * i / k)).ToArray();
+            var parts = l.SplitAt(points);
+            Assert.That(parts.Length, Is.EqualTo(k));
+            var start = 0;
+            for (var i = 0; i < parts.Length; i++)
+            {
+                var end = i < points.Length ? points[i] : l.Count;
+                Check(expected.GetRange(start, end - start), parts[i], $"SplitAt({l.Count}, k={k})[{i}]");
+                start = end;
+            }
+        }
+    }
+
+    [Test]
+    public void SplitAt_NoPointsIsTheList()
+    {
+        var l = Prepended(500);
+        var parts = l.SplitAt(Array.Empty<int>());
+        Assert.That(parts.Length, Is.EqualTo(1));
+        Assert.That(parts[0], Is.SameAs(l));
+    }
+
+    [Test]
+    public void SplitAt_EqualPointsGiveEmptyParts()
+    {
+        var l = Prepended(500);
+        var parts = l.SplitAt(new[] { 0, 100, 100, 500 });
+        Assert.That(parts.Select(p => p.Count), Is.EqualTo(new[] { 0, 100, 0, 400, 0 }));
+        Check(Enumerable.Range(100, 400).ToList(), parts[3], "SplitAt [3]");
+    }
+
+    [Test]
+    public void SplitAt_RejectsBadPoints()
+    {
+        var l = Prepended(50);
+        Assert.Throws<ArgumentException>(() => l.SplitAt(new[] { 10, 5 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => l.SplitAt(new[] { 51 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => l.SplitAt(new[] { -1 }));
+    }
+
     [Test]
     public void Slice_EveryStartAndSomeCounts()
     {
