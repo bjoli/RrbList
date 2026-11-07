@@ -288,7 +288,52 @@ public sealed partial class RrbList<T>
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private T[] TreeLeafAt(int index, out int position, out int length)
+    private T[] TreeLeafAt(int index, out int position, out int length) =>
+        DescendToLeaf(index, out position, out length);
+
+    /// <summary>
+    ///     The leaf array that holds element <paramref name="index"/>, as
+    ///     <see cref="LeafAt"/> returns it, with no call and no check of the
+    ///     index.
+    /// </summary>
+    /// <remarks>
+    ///     For a walk's step to its next leaf, which is inlined in the walk's
+    ///     loop. On Linux .NET keeps no float register across a call, so a
+    ///     loop with a call on any path keeps its float sums in memory.
+    ///     <list type="bullet">
+    ///         <item>The caller makes sure that <paramref name="index"/> is
+    ///         an element of the list.</item>
+    ///         <item>Everything it does is inlined: the tail, the head, and
+    ///         the descent of the tree (<see cref="DescendToLeaf"/>).</item>
+    ///     </list>
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public T[] LeafInWalk(int index, out int position, out int length)
+    {
+        var tailOffset = Count - TailLen;
+        if (index >= tailOffset)
+        {
+            position = index - tailOffset;
+            length = TailLen;
+            return Tail;
+        }
+
+        if (index < HeadLen)
+        {
+            position = index;
+            length = HeadLen;
+            return Head!;
+        }
+
+        return DescendToLeaf(index - HeadLen + Gap, out position, out length);
+    }
+
+    // The descent from the root to the leaf of tree index `index`: a search of
+    // the size table at each relaxed level, then a shift at each dense one.
+    // Every node access is an `Unsafe.As` (RrbAlgorithm.AsInternal, AsLeaf),
+    // so the descent makes no call.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private T[] DescendToLeaf(int index, out int position, out int length)
     {
         var node = Root!;
         var shift = Shift;
@@ -330,6 +375,7 @@ public sealed partial class RrbList<T>
     ///     True if element <paramref name="index"/> is in the tree, not in the
     ///     head or the tail.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool InTree(int index) => index >= HeadLen && index < Count - TailLen;
 
     /**
